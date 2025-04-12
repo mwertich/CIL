@@ -260,7 +260,7 @@ def denormalize_image(tensor):
 
 
 
-def visualize_depth_maps(file_name, plt_title, image, prediction, ground_truth=None):
+def visualize_depth_maps(plt_title, file_name, image, prediction, ground_truth=None):
     # Convert tensors to numpy for visualization
     img_vis = denormalize_image(image.squeeze(0).cpu())
     img_np = TF.to_pil_image(img_vis)
@@ -281,8 +281,8 @@ def visualize_depth_maps(file_name, plt_title, image, prediction, ground_truth=N
     # Plot
 
     fig, axs = plt.subplots(1, len(captions), figsize=(12, 4))
-    for (i, (title, plot_img)) in enumerate(zip(captions, plot_images)):
-        axs[i].imshow(plot_img)
+    for (i, (caption, plot_img)) in enumerate(zip(captions, plot_images)):
+        axs[i].set_title(caption)
         if i == 0:
             axs[i].imshow(plot_img)
         else:
@@ -291,7 +291,6 @@ def visualize_depth_maps(file_name, plt_title, image, prediction, ground_truth=N
     for ax in axs:
         ax.axis("off")
     plt.tight_layout()
-    plt.title(plt_title)
     plt.show()
     plt.savefig(file_name)
 
@@ -311,7 +310,7 @@ def visualize_prediction_with_ground_truth(model, loader, num_images=5):
             )
             for image, depth, prediction in zip(images, depths, pred_resized): 
                 images_shown += 1
-                file_name = f"depth_maps/depth_map_{images_shown}.png"
+                file_name = f"depth_maps/val/depth_map_{images_shown}.png"
                 visualize_depth_maps("Depths Map Validation Set", file_name, image, prediction, depth)
                 if images_shown >= num_images:
                     return
@@ -331,7 +330,7 @@ def visualize_prediction_without_ground_truth(model, test_loader, num_images=5):
             )
             for image, prediction, out_path in zip(images, pred_resized, out_paths):
                 images_shown += 1
-                file_name = f"depth_maps/depth_map_{images_shown}.png"
+                file_name = f"depth_maps/test/depth_map_{images_shown}.png"
                 visualize_depth_maps("Depths Map Test Set", file_name, image, prediction)
                 if images_shown >= num_images:
                     return
@@ -349,7 +348,7 @@ model.load_state_dict(torch.load("models/model_finetuned_final.pth", map_locatio
 model.eval()
 
 print("✅ Loaded fine-tuned MiDaS model.")
-evaluate_model(model, val_loader, num_epochs)
-#visualize_prediction_with_ground_truth(model, val_loader, num_images=20)
-predict_model(model, test_loader)
-#visualize_prediction_without_ground_truth(model, test_loader, num_images=10)
+#evaluate_model(model, val_loader, num_epochs)
+visualize_prediction_with_ground_truth(model, val_loader, num_images=10)
+#predict_model(model, test_loader)
+visualize_prediction_without_ground_truth(model, test_loader, num_images=10)
