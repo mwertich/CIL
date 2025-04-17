@@ -1,0 +1,15 @@
+name: monocular-depth-env
+channels:
+  - defaults
+  - conda-forge
+dependencies:
+  - python
+  - numpy
+  - pytorch
+  - torchvision
+  - matplotlib
+  - scikit-learn
+  - tqdm
+  - opencv
+  - timm
+  - pip

@@ -1,9 +1,7 @@
 import os
 import torch
-from MiDaS.midas.dpt_depth import DPTDepthModel
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
-from torchvision import transforms
 import numpy as np
 import cv2
 from tqdm import tqdm
