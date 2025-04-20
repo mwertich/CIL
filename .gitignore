@@ -15,10 +15,16 @@ downloads/
 eggs/
 .eggs/
 lib/
-lib64/
+lib64
+share/
+bin/
+*.cfg
 parts/
 sdist/
 var/
+models/
+src/data/test
+src/data/train
 wheels/
 share/python-wheels/
 *.egg-info/
