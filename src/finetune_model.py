@@ -100,7 +100,7 @@ test_pairs = test_image_depth_pairs
 
 
 # Dataset and Dataloader
-train_batch_size, val_batch_size, test_batch_size = 4, 4, 4
+train_batch_size, val_batch_size, test_batch_size = 1, 1, 1
 
 train_dataset = ImageDepthDataset(train_image_folder, train_depth_folder, transform, train_pairs)
 train_loader = DataLoader(train_dataset, batch_size=train_batch_size, shuffle=True)
@@ -189,7 +189,7 @@ def evaluate_model(model, val_loader, epoch):
 
 
 # Main training function
-def finetune_model(model, train_loader, val_loader, epochs=5, lr=1e-5):
+def finetune_model(model, train_loader, val_loader, out_path, epochs=5, lr=1e-5):
 
     model.to(device)
     model.train()  # set to train mode
@@ -229,8 +229,8 @@ def finetune_model(model, train_loader, val_loader, epochs=5, lr=1e-5):
         #print(f"💾 Model saved to models/{model_path}")
 
     # Save fine-tuned model
-    torch.save(model.state_dict(), "models/model_finetuned.pth")
-    print("✅ Fine-tuned model saved to models/model_finetuned.pth")
+    torch.save(model.state_dict(), out_path)
+    print(f"✅ Fine-tuned model saved to {out_path}")
 
 
 def predict_model(model, test_loader):
@@ -334,15 +334,15 @@ def visualize_prediction_without_ground_truth(model, test_loader, num_images=5):
                     return
 
 
-num_epochs = 25
-#finetune_model(model, train_loader, val_loader, epochs=num_epochs)
+num_epochs = 5
+#finetune_model(model, train_loader, val_loader, out_path="models/model_finetuned.pth", epochs=num_epochs)
 
 # Reload the architecture
 model = torch.hub.load("intel-isl/MiDaS", "DPT_Large")
 model.to(device)
 
 # Load the fine-tuned weights
-model.load_state_dict(torch.load("models/model_finetuned_final.pth", map_location=device))
+model.load_state_dict(torch.load("models/model_finetuned.pth", map_location=device))
 model.eval()
 
 print("✅ Loaded fine-tuned MiDaS model.")

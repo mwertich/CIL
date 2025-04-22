@@ -3,13 +3,14 @@ channels:
   - defaults
   - conda-forge
 dependencies:
-  - python
-  - numpy
-  - pytorch
-  - torchvision
+  - python=3.10
+  - numpy=1.26.4
   - matplotlib
   - scikit-learn
   - tqdm
-  - opencv
-  - timm
   - pip
+  - pip:
+      - opencv-python
+      - timm
+      - torch==1.13.1
+      - torchvision==0.14.1
