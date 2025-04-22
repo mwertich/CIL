@@ -335,14 +335,14 @@ def visualize_prediction_without_ground_truth(model, test_loader, num_images=5):
 
 
 num_epochs = 5
-#finetune_model(model, train_loader, val_loader, out_path="models/model_finetuned.pth", epochs=num_epochs)
+finetune_model(model, train_loader, val_loader, out_path="models/model_finetuned.pth", epochs=num_epochs)
 
 # Reload the architecture
 model = torch.hub.load("intel-isl/MiDaS", "DPT_Large")
 model.to(device)
 
 # Load the fine-tuned weights
-model.load_state_dict(torch.load("models/model_finetuned.pth", map_location=device))
+model.load_state_dict(torch.load("models/model_finetuned_final.pth", map_location=device))
 model.eval()
 
 print("✅ Loaded fine-tuned MiDaS model.")
