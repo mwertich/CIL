@@ -8,49 +8,50 @@ from tqdm import tqdm
 from sklearn.model_selection import train_test_split
 import matplotlib.pyplot as plt
 import torchvision.transforms.functional as TF
-
-
+midas = torch.hub.load("intel-isl/MiDaS", "DPT_Large")
 from midas.dpt_depth import DPT
+from midas.blocks import Interpolate
+
 
 class MiDaS_UQ(DPT):
-    def __init__(self, **kwargs):
-        def __init__(self, path=None, non_negative=True, **kwargs):
-            features = kwargs["features"] if "features" in kwargs else 256
-            head_features_1 = kwargs["head_features_1"] if "head_features_1" in kwargs else features
-            head_features_2 = kwargs["head_features_2"] if "head_features_2" in kwargs else 32
-            kwargs.pop("head_features_1", None)
-            kwargs.pop("head_features_2", None)
-    
-            head = nn.Sequential(
-                nn.Conv2d(head_features_1, head_features_1 // 2, kernel_size=3, stride=1, padding=1),
-                Interpolate(scale_factor=2, mode="bilinear", align_corners=True),
-                nn.Conv2d(head_features_1 // 2, head_features_2, kernel_size=3, stride=1, padding=1),
-                nn.ReLU(True),
-                nn.Conv2d(head_features_2, 2, kernel_size=1, stride=1, padding=0),
-                # nn.ReLU(True) if non_negative else nn.Identity(),
-                # nn.Identity(),
-            )
-    
-            super().__init__(head, **kwargs)
-    
-            if path is not None:
-               self.load(path)
+    def __init__(self, path=None, non_negative=True, **kwargs):
+        features = kwargs["features"] if "features" in kwargs else 256
+        head_features_1 = kwargs["head_features_1"] if "head_features_1" in kwargs else features
+        head_features_2 = kwargs["head_features_2"] if "head_features_2" in kwargs else 32
+        kwargs.pop("head_features_1", None)
+        kwargs.pop("head_features_2", None)
 
-        def forward(self, x):
-            output = super().forward(x)#.squeeze(dim=1)
-            depth = output[:, 0, :, :]#.squeeze(dim=1)
-            logvar_depth = output[:, 1, :, :]#.squeeze(dim=1)
-            return depth, logvar_depth
-            
-            # return super().forward(x)#.squeeze(dim=1)
+        head = nn.Sequential(
+            nn.Conv2d(head_features_1, head_features_1 // 2, kernel_size=3, stride=1, padding=1),
+            Interpolate(scale_factor=2, mode="bilinear", align_corners=True),
+            nn.Conv2d(head_features_1 // 2, head_features_2, kernel_size=3, stride=1, padding=1),
+            nn.ReLU(True),
+            nn.Conv2d(head_features_2, 2, kernel_size=1, stride=1, padding=0),
+            nn.ReLU(True) if non_negative else nn.Identity(),
+            nn.Identity(),
+        )
+
+        super().__init__(head, **kwargs)
+
+        if path is not None:
+            self.load(path)
+
+    def forward(self, x):
+        output = super().forward(x)#.squeeze(dim=1)
+        depth = output[:, 0, :, :]#.squeeze(dim=1)
+        logvar_depth = output[:, 1, :, :]#.squeeze(dim=1)
+        return depth, logvar_depth
+        
+        # return super().forward(x)#.squeeze(dim=1)
 
 class DepthUncertaintyLoss(nn.Module):
     def __init__(self, eps=1e-6):
         super().__init__()
         self.gaussian_nll = nn.GaussianNLLLoss(eps=eps)
 
-    def forward(self, depth_pred, logvar_depth, depth_gt):
+    def forward(self, depth_pred, logvar_pred, depth_gt):
         var = torch.exp(logvar_pred).clamp(min=1e-6)
+        print(var.shape, depth_pred.shape, depth_gt.shape)
         return self.gaussian_nll(depth_pred, depth_gt, var)
 
 
@@ -122,7 +123,14 @@ def load_image_depth_pairs(file_path):
 
 # Load model and transforms
 # model = torch.hub.load("intel-isl/MiDaS", "DPT_Large")
-model = MiDaS_UQ(path='/home/evrachoriti/.cache/torch/hub/checkpoints/dpt_large_384.pt')
+
+model = MiDaS_UQ(backbone="vitl16_384")
+state_dict = torch.load("models/model_finetuned.pth", map_location=device)
+filtered_state_dict = {
+    k: v for k, v in state_dict.items()
+    if "scratch.output_conv.4." not in k  # Exclude final conv layer
+}
+model.load_state_dict(filtered_state_dict, strict=False)
 transform = torch.hub.load("intel-isl/MiDaS", "transforms").dpt_transform
 
 image_size = [426, 560]
@@ -236,6 +244,8 @@ def evaluate_model(model, val_loader, epoch):
 # Main training function
 def finetune_model(model, train_loader, val_loader, out_path, epochs=5, lr=1e-5):
 
+
+    print(type(model))
     model.to(device)
     model.train()  # set to train mode
 
@@ -408,11 +418,11 @@ num_epochs = 1
 finetune_model(model, train_loader, val_loader, out_path="models/model_finetuned.pth", epochs=num_epochs)
 
 # Reload the architecture
-model = torch.hub.load("intel-isl/MiDaS", "DPT_Large")
-model.to(device)
+# model = torch.hub.load("intel-isl/MiDaS", "DPT_Large")
+# model.to(device)
 
 # Load the fine-tuned weights
-model.load_state_dict(torch.load("models/model_finetuned_final.pth", map_location=device))
+# model.load_state_dict(torch.load("models/model_finetuned_final.pth", map_location=device))
 model.eval()
 
 print("✅ Loaded fine-tuned MiDaS model.")

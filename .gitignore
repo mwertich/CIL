@@ -22,10 +22,14 @@ bin/
 parts/
 sdist/
 var/
+etc/
+include/
 models/
 src/data/test
 src/data/train
 wheels/
+depth_maps/
+output*.txt
 share/python-wheels/
 *.egg-info/
 .installed.cfg
