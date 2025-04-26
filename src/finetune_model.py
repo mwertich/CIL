@@ -360,13 +360,14 @@ def main(args):
     model.eval()
     print("✅ Loaded fine-tuned MiDaS model.")
 
-    #print("✅ Evaluate fine-tuned MiDaS model.")
+    print("✅ Evaluate fine-tuned MiDaS model.")
     #evaluate_model(model, val_loader, num_epochs)
 
-
+    print("✅ Predict with fine-tuned MiDaS model.")
     visualize_prediction_with_ground_truth(model, val_loader, num_images=10)
     visualize_prediction_without_ground_truth(model, test_loader, num_images=10)
     #predict_model(model, test_loader)
+    print("Finished")
 
 
 
