@@ -10,6 +10,50 @@ import matplotlib.pyplot as plt
 import torchvision.transforms.functional as TF
 
 
+from midas.dpt_depth import DPT
+
+class MiDaS_UQ(DPT):
+    def __init__(self, **kwargs):
+        def __init__(self, path=None, non_negative=True, **kwargs):
+            features = kwargs["features"] if "features" in kwargs else 256
+            head_features_1 = kwargs["head_features_1"] if "head_features_1" in kwargs else features
+            head_features_2 = kwargs["head_features_2"] if "head_features_2" in kwargs else 32
+            kwargs.pop("head_features_1", None)
+            kwargs.pop("head_features_2", None)
+    
+            head = nn.Sequential(
+                nn.Conv2d(head_features_1, head_features_1 // 2, kernel_size=3, stride=1, padding=1),
+                Interpolate(scale_factor=2, mode="bilinear", align_corners=True),
+                nn.Conv2d(head_features_1 // 2, head_features_2, kernel_size=3, stride=1, padding=1),
+                nn.ReLU(True),
+                nn.Conv2d(head_features_2, 2, kernel_size=1, stride=1, padding=0),
+                # nn.ReLU(True) if non_negative else nn.Identity(),
+                # nn.Identity(),
+            )
+    
+            super().__init__(head, **kwargs)
+    
+            if path is not None:
+               self.load(path)
+
+        def forward(self, x):
+            output = super().forward(x)#.squeeze(dim=1)
+            depth = output[:, 0, :, :]#.squeeze(dim=1)
+            logvar_depth = output[:, 1, :, :]#.squeeze(dim=1)
+            return depth, logvar_depth
+            
+            # return super().forward(x)#.squeeze(dim=1)
+
+class DepthUncertaintyLoss(nn.Module):
+    def __init__(self, eps=1e-6):
+        super().__init__()
+        self.gaussian_nll = nn.GaussianNLLLoss(eps=eps)
+
+    def forward(self, depth_pred, logvar_depth, depth_gt):
+        var = torch.exp(logvar_pred).clamp(min=1e-6)
+        return self.gaussian_nll(depth_pred, depth_gt, var)
+
+
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
@@ -77,7 +121,8 @@ def load_image_depth_pairs(file_path):
 
 
 # Load model and transforms
-model = torch.hub.load("intel-isl/MiDaS", "DPT_Large")
+# model = torch.hub.load("intel-isl/MiDaS", "DPT_Large")
+model = MiDaS_UQ(path='/home/evrachoriti/.cache/torch/hub/checkpoints/dpt_large_384.pt')
 transform = torch.hub.load("intel-isl/MiDaS", "transforms").dpt_transform
 
 image_size = [426, 560]
@@ -195,7 +240,8 @@ def finetune_model(model, train_loader, val_loader, out_path, epochs=5, lr=1e-5)
     model.train()  # set to train mode
 
     # Define loss and optimizer
-    criterion = nn.L1Loss()  # or nn.MSELoss()
+    # criterion = nn.L1Loss()  # or nn.MSELoss()
+    criterion = DepthUncertaintyLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 
     # Training loop
@@ -205,16 +251,24 @@ def finetune_model(model, train_loader, val_loader, out_path, epochs=5, lr=1e-5)
             images, depths = images.to(device), depths.to(device)
 
             optimizer.zero_grad()
-            outputs = model(images)
+            # outputs = model(images)
+            depth, logvar_depth = model(images)
 
-            outputs_resized = torch.nn.functional.interpolate(
-                outputs.unsqueeze(1),
+            depth_resized = torch.nn.functional.interpolate(
+                depth.unsqueeze(1),
                 size=depths.shape[-2:],
                 mode="bicubic",
                 align_corners=False
             ).squeeze(1)
 
-            loss = criterion(outputs_resized, depths.squeeze(1))
+            # outputs_resized = torch.nn.functional.interpolate(
+            #     outputs.unsqueeze(1),
+            #     size=depths.shape[-2:],
+            #     mode="bicubic",
+            #     align_corners=False
+            # ).squeeze(1)
+
+            loss = criterion(depth_resized, logvar_depth, depths.squeeze(1))
             loss.backward()
             optimizer.step()
 
@@ -233,20 +287,20 @@ def finetune_model(model, train_loader, val_loader, out_path, epochs=5, lr=1e-5)
     print(f"✅ Fine-tuned model saved to {out_path}")
 
 
-def predict_model(model, test_loader):
-    model.eval()
-    with torch.no_grad():
-        for images, out_paths in test_loader:
-            images = images.to(device)
+# def predict_model(model, test_loader):
+#     model.eval()
+#     with torch.no_grad():
+#         for images, out_paths in test_loader:
+#             images = images.to(device)
 
-            preds = model(images)
-            preds_resized = torch.nn.functional.interpolate(
-                preds.unsqueeze(1), size=image_size, mode="bicubic", align_corners=False
-            )
-            eps = 1e-8
-            preds_resized = preds_resized.clamp(min=eps) # for numerical stability for RMSE to avoid nan values due to log(0)
-            for pred, out_path in zip(preds_resized, out_paths):
-                np.save(out_path, pred.cpu())
+#             preds = model(images)
+#             preds_resized = torch.nn.functional.interpolate(
+#                 preds.unsqueeze(1), size=image_size, mode="bicubic", align_corners=False
+#             )
+#             eps = 1e-8
+#             preds_resized = preds_resized.clamp(min=eps) # for numerical stability for RMSE to avoid nan values due to log(0)
+#             for pred, out_path in zip(preds_resized, out_paths):
+#                 np.save(out_path, pred.cpu())
 
 
 
@@ -302,14 +356,22 @@ def visualize_prediction_with_ground_truth(model, loader, num_images=5):
         for images, depths in loader:
             images = images.to(device)
             depths = depths.to(device)
-            pred = model(images)
-            pred_resized = torch.nn.functional.interpolate(
-                pred.unsqueeze(1), size=depths.shape[-2:], mode="bicubic", align_corners=False
+
+            depth, logvar_depth = model(images)
+            depth_resized = torch.nn.functional.interpolate(
+                depth.unsqueeze(1), size=depths.shape[-2:], mode="bicubic", align_corners=False
             )
-            for image, depth, prediction in zip(images, depths, pred_resized): 
+            
+            # pred = model(images)
+            # pred_resized = torch.nn.functional.interpolate(
+            #     pred.unsqueeze(1), size=depths.shape[-2:], mode="bicubic", align_corners=False
+            # )
+            for image, dep, logvar_dep, prediction in zip(images, depths, logvar_depth, depth_resized): 
                 images_shown += 1
                 file_name = f"depth_maps/val/depth_map_{images_shown}.png"
-                visualize_depth_maps("Depths Map Validation Set", file_name, image, prediction, depth)
+                visualize_depth_maps("Depths Map Validation Set", file_name, image, prediction, dep)
+                file_name = f"depth_maps/val/uq_map_{images_shown}.png"
+                visualize_depth_maps("Uncertainty Map Validation Set", file_name, image, prediction, logvar_dep)
                 if images_shown >= num_images:
                     return
 
@@ -322,19 +384,27 @@ def visualize_prediction_without_ground_truth(model, test_loader, num_images=5):
         for images, out_paths in test_loader:
 
             images = images.to(device)
-            pred = model(images)
-            pred_resized = torch.nn.functional.interpolate(
-                pred.unsqueeze(1), size=image_size, mode="bicubic", align_corners=False
+
+            depth, logvar_depth = model(images)
+            depth_resized = torch.nn.functional.interpolate(
+                depth.unsqueeze(1), size=depths.shape[-2:], mode="bicubic", align_corners=False
             )
-            for image, prediction, out_path in zip(images, pred_resized, out_paths):
+            
+            # pred = model(images)
+            # pred_resized = torch.nn.functional.interpolate(
+            #     pred.unsqueeze(1), size=image_size, mode="bicubic", align_corners=False
+            # )
+            for image, logvar_dep, prediction in zip(images, logvar_depth, depth_resized): 
                 images_shown += 1
-                file_name = f"depth_maps/test/depth_map_{images_shown}.png"
-                visualize_depth_maps("Depths Map Test Set", file_name, image, prediction)
+                file_name = f"depth_maps/val/depth_map_{images_shown}.png"
+                visualize_depth_maps("Depths Map Validation Set", file_name, image, prediction)
+                file_name = f"depth_maps/val/uq_map_{images_shown}.png"
+                visualize_depth_maps("Uncertainty Map Validation Set", file_name, image, prediction, logvar_dep)
                 if images_shown >= num_images:
                     return
 
 
-num_epochs = 5
+num_epochs = 1
 finetune_model(model, train_loader, val_loader, out_path="models/model_finetuned.pth", epochs=num_epochs)
 
 # Reload the architecture
