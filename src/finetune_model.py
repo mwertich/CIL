@@ -124,7 +124,7 @@ def load_image_depth_pairs(file_path):
 # model = torch.hub.load("intel-isl/MiDaS", "DPT_Large")
 
 model = MiDaS_UQ(backbone="vitl16_384")
-state_dict = torch.load("models/model_finetuned.pth", map_location=device)
+state_dict = torch.load("models/model_finetuned_final.pth", map_location=device)
 filtered_state_dict = {
     k: v for k, v in state_dict.items()
     if "scratch.output_conv.4." not in k  # Exclude final conv layer
@@ -143,7 +143,7 @@ test_depth_folder = "src/data/predictions"
 train_image_depth_pairs = load_image_depth_pairs("src/data/train_list.txt")
 test_image_depth_pairs = load_image_depth_pairs("src/data/test_list.txt")
 
-subset_size = 1000 #23971
+subset_size = 2500 #23971
 val_size = 0.1
 
 files = train_image_depth_pairs[:subset_size] if subset_size else train_image_depth_pairs
@@ -152,7 +152,7 @@ test_pairs = test_image_depth_pairs
 
 
 # Dataset and Dataloader
-train_batch_size, val_batch_size, test_batch_size = 1, 1, 1
+train_batch_size, val_batch_size, test_batch_size = 3, 3, 3
 
 train_dataset = ImageDepthDataset(train_image_folder, train_depth_folder, transform, train_pairs)
 train_loader = DataLoader(train_dataset, batch_size=train_batch_size, shuffle=True)
@@ -223,14 +223,14 @@ def evaluate_model(model, val_loader, epoch):
         for images, depths in val_loader:
             images = images.to(device)
             depths = depths.to(device)
-
-            preds = model(images)
-            preds_resized = torch.nn.functional.interpolate(
-                preds.unsqueeze(1), size=depths.shape[-2:], mode="bicubic", align_corners=False
+            
+            depth, _ = model(images)
+            depth_resized = torch.nn.functional.interpolate(
+                depth.unsqueeze(1), size=depths.shape[-2:], mode="bicubic", align_corners=False
             )
 
             eps = 1e-8
-            preds_resized = preds_resized.clamp(min=eps) # for numerical stability for RMSE to avoid nan values due to log(0)
+            preds_resized = depth_resized.clamp(min=eps) # for numerical stability for RMSE to avoid nan values due to log(0)
 
             loss = scale_invariant_rmse(preds_resized, depths)
             total_rmse += loss.item()
@@ -243,8 +243,6 @@ def evaluate_model(model, val_loader, epoch):
 # Main training function
 def finetune_model(model, train_loader, val_loader, out_path, epochs=5, lr=1e-5):
 
-
-    print(type(model))
     model.to(device)
     model.train()  # set to train mode
 
@@ -374,17 +372,13 @@ def visualize_prediction_with_ground_truth(model, loader, num_images=5):
             logvar_depth_resized = torch.nn.functional.interpolate(
                 logvar_depth.unsqueeze(1), size=depths.shape[-2:], mode="bicubic", align_corners=False
             )
-            
-            # pred = model(images)
-            # pred_resized = torch.nn.functional.interpolate(
-            #     pred.unsqueeze(1), size=depths.shape[-2:], mode="bicubic", align_corners=False
-            # )
-            for image, dep, logvar_dep, prediction in zip(images, depths, logvar_depth_resized, depth_resized): 
+            predicted_vars = torch.exp(logvar_depth_resized).clamp(min=1e-6)
+            for image, dep, var, prediction in zip(images, depths, predicted_vars, depth_resized): 
                 images_shown += 1
                 file_name = f"depth_maps/val/depth_map_{images_shown}.png"
                 visualize_depth_maps("Depths Map Validation Set", file_name, image, prediction, dep)
                 file_name = f"depth_maps/val/uq_map_{images_shown}.png"
-                visualize_depth_maps("Uncertainty Map Validation Set", file_name, image, prediction, logvar_dep)
+                visualize_depth_maps("Uncertainty Map Validation Set", file_name, image, prediction, var)
                 if images_shown >= num_images:
                     return
 
@@ -400,28 +394,24 @@ def visualize_prediction_without_ground_truth(model, test_loader, num_images=5):
 
             depth, logvar_depth = model(images)
             depth_resized = torch.nn.functional.interpolate(
-                depth.unsqueeze(1), size=depths.shape[-2:], mode="bicubic", align_corners=False
+                depth.unsqueeze(1), size=image_size, mode="bicubic", align_corners=False
             )
             
             logvar_depth_resized = torch.nn.functional.interpolate(
-                logvar_depth.unsqueeze(1), size=depths.shape[-2:], mode="bicubic", align_corners=False
+                logvar_depth.unsqueeze(1), size=image_size, mode="bicubic", align_corners=False
             )
-            
-            # pred = model(images)
-            # pred_resized = torch.nn.functional.interpolate(
-            #     pred.unsqueeze(1), size=image_size, mode="bicubic", align_corners=False
-            # )
-            for image, logvar_dep, prediction in zip(images, logvar_depth_resized, depth_resized): 
+            predicted_vars = torch.exp(logvar_depth_resized).clamp(min=1e-6)
+            for image, var, prediction in zip(images, predicted_vars, depth_resized): 
                 images_shown += 1
-                file_name = f"depth_maps/val/depth_map_{images_shown}.png"
+                file_name = f"depth_maps/test/depth_map_{images_shown}.png"
                 visualize_depth_maps("Depths Map Validation Set", file_name, image, prediction)
-                file_name = f"depth_maps/val/uq_map_{images_shown}.png"
-                visualize_depth_maps("Uncertainty Map Validation Set", file_name, image, prediction, logvar_dep)
+                file_name = f"depth_maps/test/uq_map_{images_shown}.png"
+                visualize_depth_maps("Uncertainty Map Validation Set", file_name, image, prediction, var)
                 if images_shown >= num_images:
                     return
 
 
-num_epochs = 1
+num_epochs = 5
 finetune_model(model, train_loader, val_loader, out_path="models/model_finetuned.pth", epochs=num_epochs)
 
 # Reload the architecture
