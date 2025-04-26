@@ -9,8 +9,9 @@ from sklearn.model_selection import train_test_split
 import matplotlib.pyplot as plt
 import torchvision.transforms.functional as TF
 
-
+midas = torch.hub.load("intel-isl/MiDaS", model_type)
 from midas.dpt_depth import DPT
+
 
 class MiDaS_UQ(DPT):
     def __init__(self, **kwargs):
