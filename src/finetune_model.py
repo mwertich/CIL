@@ -8,10 +8,10 @@ from tqdm import tqdm
 from sklearn.model_selection import train_test_split
 import matplotlib.pyplot as plt
 import torchvision.transforms.functional as TF
-
+import argparse
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
+image_size = [426, 560]
 
 class ImageDepthDataset(Dataset):
     def __init__(self, image_dir, depth_dir, transform, image_depth_file_pairs):
@@ -27,7 +27,6 @@ class ImageDepthDataset(Dataset):
         image_file, depth_file = self.image_depth_file_pairs[idx]
         image_path = os.path.join(self.image_dir, image_file)
         depth_path = os.path.join(self.depth_dir, depth_file)
-
         image = cv2.imread(image_path)
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         depth = np.load(depth_path)
@@ -35,7 +34,7 @@ class ImageDepthDataset(Dataset):
         image = self.transform(image).squeeze(0)
         depth = torch.from_numpy(depth).unsqueeze(0).float()
 
-        return image, depth
+        return image, depth, image_file
     
 
 class TestImageDepthDataset(Dataset):
@@ -71,45 +70,10 @@ def load_image_depth_pairs(file_path):
     with open(file_path, 'r') as f:
         for line in f:
             parts = line.strip().split()
-            image_file, depth_file = parts
-            pairs.append((image_file, depth_file))
+            if len(parts) == 2:
+                image_file, depth_file = parts
+                pairs.append((image_file, depth_file))
     return pairs
-
-
-# Load model and transforms
-model = torch.hub.load("intel-isl/MiDaS", "DPT_Large")
-transform = torch.hub.load("intel-isl/MiDaS", "transforms").dpt_transform
-
-image_size = [426, 560]
-
-train_image_folder = "src/data/train"
-train_depth_folder = "src/data/train"
-test_image_folder = "src/data/test"
-test_depth_folder = "src/data/predictions"
-
-#all_files = [f for f in os.listdir(image_folder) if f.endswith(".png")]
-train_image_depth_pairs = load_image_depth_pairs("src/data/train_list.txt")
-test_image_depth_pairs = load_image_depth_pairs("src/data/test_list.txt")
-
-subset_size = 1000 #23971
-val_size = 0.1
-
-files = train_image_depth_pairs[:subset_size] if subset_size else train_image_depth_pairs
-train_pairs, val_pairs = train_test_split(files, test_size=val_size, random_state=42)
-test_pairs = test_image_depth_pairs
-
-
-# Dataset and Dataloader
-train_batch_size, val_batch_size, test_batch_size = 1, 1, 1
-
-train_dataset = ImageDepthDataset(train_image_folder, train_depth_folder, transform, train_pairs)
-train_loader = DataLoader(train_dataset, batch_size=train_batch_size, shuffle=True)
-
-val_dataset = ImageDepthDataset(train_image_folder, train_depth_folder, transform, val_pairs)
-val_loader = DataLoader(val_dataset, batch_size=val_batch_size, shuffle=True)
-
-test_dataset = TestImageDepthDataset(test_image_folder, test_depth_folder, transform, test_pairs)
-test_loader = DataLoader(test_dataset, batch_size=val_batch_size, shuffle=True)
 
 
 
@@ -168,7 +132,7 @@ def evaluate_model(model, val_loader, epoch):
     model.eval()
     total_rmse = 0.0
     with torch.no_grad():
-        for images, depths in val_loader:
+        for images, depths, _ in val_loader:
             images = images.to(device)
             depths = depths.to(device)
 
@@ -184,12 +148,12 @@ def evaluate_model(model, val_loader, epoch):
             total_rmse += loss.item()
 
     avg_rmse = total_rmse / len(val_loader)
-    print(f"✅ Scale-Invariant RMSE after epoch {epoch+1}: {avg_rmse:.4f}")
+    print(f"✅ Scale-Invariant RMSE after epoch {epoch}: {avg_rmse:.4f}")
 
 
 
 # Main training function
-def finetune_model(model, train_loader, val_loader, out_path, epochs=5, lr=1e-5):
+def finetune_model(model, train_loader, val_loader, out_path, epochs=5, lr=1e-5, save_model = True):
 
     model.to(device)
     model.train()  # set to train mode
@@ -201,7 +165,7 @@ def finetune_model(model, train_loader, val_loader, out_path, epochs=5, lr=1e-5)
     # Training loop
     for epoch in range(1, epochs + 1):
         running_loss = 0.0
-        for images, depths in tqdm(train_loader, desc=f"Epoch {epoch}/{epochs}"):
+        for images, depths, _ in tqdm(train_loader, desc=f"Epoch {epoch}/{epochs}"):
             images, depths = images.to(device), depths.to(device)
 
             optimizer.zero_grad()
@@ -220,17 +184,18 @@ def finetune_model(model, train_loader, val_loader, out_path, epochs=5, lr=1e-5)
 
             running_loss += loss.item()
 
-        print(f"Epoch [{epoch+1}/{epochs}], Loss: {running_loss/len(train_loader):.4f}")
+        print(f"Epoch [{epoch}/{epochs}], Loss: {running_loss/len(train_loader):.4f}")
         evaluate_model(model, val_loader, epoch)
         # Save model after each epoch
         
-        model_path = f"models/model_finetuned_epoch_{epoch}.pth"
+        #model_path = f"models/model_finetuned_epoch_{epoch}.pth"
         #torch.save(model.state_dict(), model_path)
         #print(f"💾 Model saved to models/{model_path}")
 
     # Save fine-tuned model
-    torch.save(model.state_dict(), out_path)
-    print(f"✅ Fine-tuned model saved to {out_path}")
+    if save_model:
+        torch.save(model.state_dict(), out_path)
+        print(f"✅ Fine-tuned model saved to {out_path}")
 
 
 def predict_model(model, test_loader):
@@ -299,7 +264,7 @@ def visualize_prediction_with_ground_truth(model, loader, num_images=5):
 
     images_shown = 0
     with torch.no_grad():
-        for images, depths in loader:
+        for images, depths, _ in loader:
             images = images.to(device)
             depths = depths.to(device)
             pred = model(images)
@@ -316,7 +281,6 @@ def visualize_prediction_with_ground_truth(model, loader, num_images=5):
 
 def visualize_prediction_without_ground_truth(model, test_loader, num_images=5):
     model.eval()
-
     images_shown = 0
     with torch.no_grad():
         for images, out_paths in test_loader:
@@ -334,19 +298,88 @@ def visualize_prediction_without_ground_truth(model, test_loader, num_images=5):
                     return
 
 
-num_epochs = 5
-finetune_model(model, train_loader, val_loader, out_path="models/model_finetuned.pth", epochs=num_epochs)
+def main(args):
+    # Load model and transforms
+    model = torch.hub.load("intel-isl/MiDaS", "DPT_Large")
+    transform = torch.hub.load("intel-isl/MiDaS", "transforms").dpt_transform
 
-# Reload the architecture
-model = torch.hub.load("intel-isl/MiDaS", "DPT_Large")
-model.to(device)
+    root = "src/data"
+    cluster_root = "/cluster/courses/cil/monocular_depth/data/"
+    category = args.category
 
-# Load the fine-tuned weights
-model.load_state_dict(torch.load("models/model_finetuned_final.pth", map_location=device))
-model.eval()
+    train_image_folder = os.path.join(cluster_root, "train")
+    train_depth_folder = os.path.join(cluster_root, "train")
+    test_image_folder = os.path.join(cluster_root, "test")
+    test_depth_folder = os.path.join(root, "predictions")
 
-print("✅ Loaded fine-tuned MiDaS model.")
-#evaluate_model(model, val_loader, num_epochs)
-visualize_prediction_with_ground_truth(model, val_loader, num_images=10)
-#predict_model(model, test_loader)
-visualize_prediction_without_ground_truth(model, test_loader, num_images=10)
+    if category:
+        train_list = f"category_lists/{category}_train_list.txt"
+        test_list = f"category_lists/{category}_test_list.txt"
+    else:
+        train_list = f"train_list.txt"
+        test_list = f"test_list.txt"
+
+    train_image_depth_pairs = load_image_depth_pairs(os.path.join(root, train_list))
+    test_image_depth_pairs = load_image_depth_pairs(os.path.join(root, test_list))
+
+    subset_size = args.subset_size #1250  #23971
+    val_percentage = args.val_percentage
+
+    files = train_image_depth_pairs[:subset_size] if subset_size else train_image_depth_pairs
+    train_pairs, val_pairs = train_test_split(files, test_size=val_percentage, random_state=42)
+    test_pairs = test_image_depth_pairs
+
+
+    # Dataset and Dataloader
+    train_batch_size, val_batch_size, test_batch_size = args.train_batch_size, args.val_batch_size, args.test_batch_size
+
+    train_dataset = ImageDepthDataset(train_image_folder, train_depth_folder, transform, train_pairs)
+    train_loader = DataLoader(train_dataset, batch_size=train_batch_size, shuffle=True)
+
+    val_dataset = ImageDepthDataset(train_image_folder, train_depth_folder, transform, val_pairs)
+    val_loader = DataLoader(val_dataset, batch_size=val_batch_size, shuffle=True)
+
+    test_dataset = TestImageDepthDataset(test_image_folder, test_depth_folder, transform, test_pairs)
+    test_loader = DataLoader(test_dataset, batch_size=test_batch_size, shuffle=True)
+
+    if category: 
+        model_path = f"models/model_{category}_finetuned.pth"
+    else:
+        model_path = f"models/model_finetuned.pth"
+
+    num_epochs = args.epochs
+
+    finetune_model(model, train_loader, val_loader, out_path=f"models/model_{category}_finetuned.pth", epochs=num_epochs)
+
+    # Reload the architecture
+    model = torch.hub.load("intel-isl/MiDaS", "DPT_Large")
+    model.to(device)
+    # Load the fine-tuned weights
+    model_path = f"models/model_{category}_finetuned.pth"
+    model.load_state_dict(torch.load(model_path, map_location=device))
+    model.eval()
+    print("✅ Loaded fine-tuned MiDaS model.")
+
+    #print("✅ Evaluate fine-tuned MiDaS model.")
+    #evaluate_model(model, val_loader, num_epochs)
+
+
+    visualize_prediction_with_ground_truth(model, val_loader, num_images=10)
+    visualize_prediction_without_ground_truth(model, test_loader, num_images=10)
+    #predict_model(model, test_loader)
+
+
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Fine-tune MiDaS model for indoor depth estimation by category.")
+    parser.add_argument("--category", type=str, help="Category (e.g., kitchen, living_room, etc.)")
+    parser.add_argument("--subset-size", type=int, default=900, help="Subset size of training data (0 for all)")
+    parser.add_argument("--val-percentage", type=float, default=0.1, help="Fraction of training data used for validation")
+    parser.add_argument("--epochs", type=int, default=8, help="Number of training epochs")
+    parser.add_argument("--train-batch-size", type=int, default=3)
+    parser.add_argument("--val-batch-size", type=int, default=3)
+    parser.add_argument("--test-batch-size", type=int, default=3)
+    args = parser.parse_args()
+
+    main(args)
