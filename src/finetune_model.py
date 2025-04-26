@@ -51,7 +51,6 @@ class DepthUncertaintyLoss(nn.Module):
 
     def forward(self, depth_pred, logvar_pred, depth_gt):
         var = torch.exp(logvar_pred).clamp(min=1e-6)
-        print(var.shape, depth_pred.shape, depth_gt.shape)
         return self.gaussian_nll(depth_pred, depth_gt, var)
 
 
@@ -271,14 +270,14 @@ def finetune_model(model, train_loader, val_loader, out_path, epochs=5, lr=1e-5)
                 align_corners=False
             ).squeeze(1)
 
-            # outputs_resized = torch.nn.functional.interpolate(
-            #     outputs.unsqueeze(1),
-            #     size=depths.shape[-2:],
-            #     mode="bicubic",
-            #     align_corners=False
-            # ).squeeze(1)
+            logvar_depth_resized = torch.nn.functional.interpolate(
+                logvar_depth.unsqueeze(1),
+                size=depths.shape[-2:],
+                mode="bicubic",
+                align_corners=False
+            ).squeeze(1)
 
-            loss = criterion(depth_resized, logvar_depth, depths.squeeze(1))
+            loss = criterion(depth_resized, logvar_depth_resized, depths.squeeze(1))
             loss.backward()
             optimizer.step()
 
@@ -371,12 +370,16 @@ def visualize_prediction_with_ground_truth(model, loader, num_images=5):
             depth_resized = torch.nn.functional.interpolate(
                 depth.unsqueeze(1), size=depths.shape[-2:], mode="bicubic", align_corners=False
             )
+
+            logvar_depth_resized = torch.nn.functional.interpolate(
+                logvar_depth.unsqueeze(1), size=depths.shape[-2:], mode="bicubic", align_corners=False
+            )
             
             # pred = model(images)
             # pred_resized = torch.nn.functional.interpolate(
             #     pred.unsqueeze(1), size=depths.shape[-2:], mode="bicubic", align_corners=False
             # )
-            for image, dep, logvar_dep, prediction in zip(images, depths, logvar_depth, depth_resized): 
+            for image, dep, logvar_dep, prediction in zip(images, depths, logvar_depth_resized, depth_resized): 
                 images_shown += 1
                 file_name = f"depth_maps/val/depth_map_{images_shown}.png"
                 visualize_depth_maps("Depths Map Validation Set", file_name, image, prediction, dep)
@@ -400,11 +403,15 @@ def visualize_prediction_without_ground_truth(model, test_loader, num_images=5):
                 depth.unsqueeze(1), size=depths.shape[-2:], mode="bicubic", align_corners=False
             )
             
+            logvar_depth_resized = torch.nn.functional.interpolate(
+                logvar_depth.unsqueeze(1), size=depths.shape[-2:], mode="bicubic", align_corners=False
+            )
+            
             # pred = model(images)
             # pred_resized = torch.nn.functional.interpolate(
             #     pred.unsqueeze(1), size=image_size, mode="bicubic", align_corners=False
             # )
-            for image, logvar_dep, prediction in zip(images, logvar_depth, depth_resized): 
+            for image, logvar_dep, prediction in zip(images, logvar_depth_resized, depth_resized): 
                 images_shown += 1
                 file_name = f"depth_maps/val/depth_map_{images_shown}.png"
                 visualize_depth_maps("Depths Map Validation Set", file_name, image, prediction)
