@@ -78,7 +78,7 @@ def load_image_depth_pairs(file_path):
 
 
 
-def scale_invariant_rmse_new(predicted, ground_truth):
+def scale_invariant_rmse(predicted, ground_truth):
     """
     predicted: Tensor of shape (B, 1, H, W)
     ground_truth: Tensor of shape (B, 1, H, W)
@@ -100,7 +100,7 @@ def scale_invariant_rmse_new(predicted, ground_truth):
     return loss.mean()  # scalar
 
 
-def scale_invariant_rmse(predicted, ground_truth):
+def scale_invariant_rmse_old(predicted, ground_truth):
     """
     predicted: Tensor of shape (B, 1, H, W)
     ground_truth: Tensor of shape (B, 1, H, W)
@@ -325,9 +325,9 @@ def main(args):
         val_list = f"category_lists/{category}_val_list.txt"
         test_list = f"category_lists/{category}_test_list.txt"
     else:
-        train_list = f"train_list.txt"
-        train_list = f"val_list.txt"
-        test_list = f"test_list.txt"
+        train_list = "train_list.txt"
+        val_list = "val_list.txt"
+        test_list = "test_list.txt"
 
     train_image_depth_pairs = load_image_depth_pairs(os.path.join(root, train_list))
     val_image_depth_pairs = load_image_depth_pairs(os.path.join(root, val_list))
