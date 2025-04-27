@@ -9,8 +9,8 @@ import re
 from collections import defaultdict
 
 # Paths
-root = "src/data/test"
-label_file = "src/categories_places365.txt"
+root = "src/data/train"
+label_file = "categories_places365.txt"
 checkpoint_url = "http://places2.csail.mit.edu/models_places365/resnet18_places365.pth.tar"
 
 # Load model
@@ -36,7 +36,7 @@ with open(label_file) as f:
 all_files = [os.path.join(root, f) for f in os.listdir(root) if f.endswith(".png")]
 
 # Modified loop to collect indices per class
-cache_file = "test_class_to_indices.json"
+cache_file = "train_class_to_indices.json"
 
 # Check if cache exists
 if os.path.exists(cache_file):
@@ -74,12 +74,12 @@ else:
 
 
 # Choose the category you want
-target_class = "home_office"
-output_file = f"{target_class}_files_2.txt"
+target_class = "dorm_room"
+output_file = f"{target_class}_files_test.txt"
 
 # Write matching file names to output
 with open(output_file, "w") as f:
     for idx in sorted(class_to_indices.get(target_class, [])):
-        f.write(f"test_{idx}_rgb.png test_{idx}_depth.npy\n")
+        f.write(f"sample_{idx}_rgb.png sample_{idx}_depth.npy\n")
 
 print(f"Saved list for class '{target_class}' to {output_file}")
