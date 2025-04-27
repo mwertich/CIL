@@ -332,6 +332,16 @@ def visualize_depth_maps(plt_title, file_name, image, prediction, ground_truth=N
         gt_disp = (depth_np - depth_np.min()) / (depth_np.max() - depth_np.min())
         captions = ["Input Image", "Ground Truth", "Predicted Depth"]
         plot_images = [img_np, gt_disp, pred_disp]
+    if uq_map is not None:
+        uq_var = torch.exp(uq_map).clamp(min=1e-6)
+        uq_np = uq_var.squeeze().cpu().numpy()
+        uq_disp = (uq_np - uq_np.min())
+        uq_disp = uq_disp if (uq_np.max() - uq_np.min()) == 0 else uq_disp / (uq_np.max() - uq_np.min())
+        uq_disp = uq_disp * 255
+        uq_disp = uq_disp.astype(np.uint8)
+        uq_disp = cv2.applyColorMap(uq_disp, cv2.COLORMAP_JET)
+        captions = ["Input Image", "Predicted Depth", "Uncertainty Map"]
+        plot_images = [img_np, pred_disp, uq_disp]
     else:
         captions = ["Input Image", "Predicted Depth"]
         plot_images = [img_np, pred_disp]
@@ -350,7 +360,7 @@ def visualize_depth_maps(plt_title, file_name, image, prediction, ground_truth=N
     for ax in axs:
         ax.axis("off")
     plt.tight_layout()
-    plt.show()
+    # plt.show()
     plt.savefig(file_name)
 
 
@@ -372,13 +382,12 @@ def visualize_prediction_with_ground_truth(model, loader, num_images=5):
             logvar_depth_resized = torch.nn.functional.interpolate(
                 logvar_depth.unsqueeze(1), size=depths.shape[-2:], mode="bicubic", align_corners=False
             )
-            predicted_vars = torch.exp(logvar_depth_resized).clamp(min=1e-6)
-            for image, dep, var, prediction in zip(images, depths, predicted_vars, depth_resized): 
+            for image, dep, var, prediction in zip(images, depths, logvar_depth_resized, depth_resized): 
                 images_shown += 1
                 file_name = f"depth_maps/val/depth_map_{images_shown}.png"
                 visualize_depth_maps("Depths Map Validation Set", file_name, image, prediction, dep)
                 file_name = f"depth_maps/val/uq_map_{images_shown}.png"
-                visualize_depth_maps("Uncertainty Map Validation Set", file_name, image, prediction, var)
+                visualize_depth_maps("Uncertainty Map Validation Set", file_name, image, prediction, uq_map=var)
                 if images_shown >= num_images:
                     return
 
@@ -400,13 +409,12 @@ def visualize_prediction_without_ground_truth(model, test_loader, num_images=5):
             logvar_depth_resized = torch.nn.functional.interpolate(
                 logvar_depth.unsqueeze(1), size=image_size, mode="bicubic", align_corners=False
             )
-            predicted_vars = torch.exp(logvar_depth_resized).clamp(min=1e-6)
-            for image, var, prediction in zip(images, predicted_vars, depth_resized): 
+            for image, var, prediction in zip(images, logvar_depth_resized, depth_resized): 
                 images_shown += 1
                 file_name = f"depth_maps/test/depth_map_{images_shown}.png"
                 visualize_depth_maps("Depths Map Validation Set", file_name, image, prediction)
                 file_name = f"depth_maps/test/uq_map_{images_shown}.png"
-                visualize_depth_maps("Uncertainty Map Validation Set", file_name, image, prediction, var)
+                visualize_depth_maps("Uncertainty Map Validation Set", file_name, image, prediction, uq_map=var)
                 if images_shown >= num_images:
                     return
 
