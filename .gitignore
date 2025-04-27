@@ -27,6 +27,7 @@ include/
 models/
 src/data/test
 src/data/train
+src/data/predictions
 wheels/
 depth_maps/
 output*.txt
