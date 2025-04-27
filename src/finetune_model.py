@@ -8,6 +8,20 @@ from tqdm import tqdm
 from sklearn.model_selection import train_test_split
 import matplotlib.pyplot as plt
 import torchvision.transforms.functional as TF
+import random
+
+
+def torch_seed(seed=0):
+    torch.manual_seed(seed)
+    random.seed(seed)
+    np.random.seed(seed)
+
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed(seed)
+        torch.cuda.manual_seed_all(seed)
+
+torch_seed()
+
 midas = torch.hub.load("intel-isl/MiDaS", "DPT_Large")
 from midas.dpt_depth import DPT
 from midas.blocks import Interpolate
