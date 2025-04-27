@@ -9,6 +9,7 @@ from sklearn.model_selection import train_test_split
 import matplotlib.pyplot as plt
 import torchvision.transforms.functional as TF
 import argparse
+from datetime import datetime  # <<< new import for time
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 image_size = [426, 560]
@@ -165,6 +166,10 @@ def finetune_model(model, train_loader, val_loader, out_path, epochs=5, lr=1e-5,
     # Training loop
     for epoch in range(1, epochs + 1):
         running_loss = 0.0
+         # Log starting time
+        start_time = datetime.now()
+        print(f"\n🕒 [{start_time.strftime('%Y-%m-%d %H:%M:%S')}] Starting Epoch {epoch}/{epochs}")
+
         for images, depths, _ in tqdm(train_loader, desc=f"Epoch {epoch}/{epochs}"):
             images, depths = images.to(device), depths.to(device)
 
@@ -184,7 +189,9 @@ def finetune_model(model, train_loader, val_loader, out_path, epochs=5, lr=1e-5,
 
             running_loss += loss.item()
 
-        print(f"Epoch [{epoch}/{epochs}], Loss: {running_loss/len(train_loader):.4f}")
+        end_time = datetime.now()
+        print(f"✅ Epoch [{epoch}/{epochs}] finished. Loss: {running_loss/len(train_loader):.4f}")
+        print(f"🕒 Finished at {end_time.strftime('%Y-%m-%d %H:%M:%S')} (Duration: {str(epoch_duration)})")
         evaluate_model(model, val_loader, epoch)
         # Save model after each epoch
         
@@ -314,19 +321,23 @@ def main(args):
 
     if category:
         train_list = f"category_lists/{category}_train_list.txt"
+        val_list = f"category_lists/{category}_val_list.txt"
         test_list = f"category_lists/{category}_test_list.txt"
     else:
         train_list = f"train_list.txt"
+        train_list = f"val_list.txt"
         test_list = f"test_list.txt"
 
     train_image_depth_pairs = load_image_depth_pairs(os.path.join(root, train_list))
+    val_image_depth_pairs = load_image_depth_pairs(os.path.join(root, val_list))
     test_image_depth_pairs = load_image_depth_pairs(os.path.join(root, test_list))
 
-    subset_size = args.subset_size #1250  #23971
-    val_percentage = args.val_percentage
+    train_size = args.train_size   #19176/23971
+    val_size = args.val_size       #4795/23971
 
-    files = train_image_depth_pairs[:subset_size] if subset_size else train_image_depth_pairs
-    train_pairs, val_pairs = train_test_split(files, test_size=val_percentage, random_state=42)
+    train_pairs = train_image_depth_pairs[:train_size] if train_size else train_image_depth_pairs
+    val_pairs = val_image_depth_pairs[:val_size] if val_size else val_image_depth_pairs
+    #train_pairs, val_pairs = train_test_split(files, test_size=val_percentage, random_state=42)
     test_pairs = test_image_depth_pairs
 
 
@@ -375,8 +386,8 @@ def main(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Fine-tune MiDaS model for indoor depth estimation by category.")
     parser.add_argument("--category", type=str, help="Category (e.g., kitchen, living_room, etc.)")
-    parser.add_argument("--subset-size", type=int, default=900, help="Subset size of training data (0 for all)")
-    parser.add_argument("--val-percentage", type=float, default=0.1, help="Fraction of training data used for validation")
+    parser.add_argument("--train-size", type=int, default=900, help="Subset size of training data")
+    parser.add_argument("--val-size", type=int, default=900, help="Subset size of validaton data")
     parser.add_argument("--epochs", type=int, default=8, help="Number of training epochs")
     parser.add_argument("--train-batch-size", type=int, default=3)
     parser.add_argument("--val-batch-size", type=int, default=3)

@@ -19,6 +19,8 @@ def split_train_val():
     # Split into train and validation
     train_lines = lines[:split_idx]
     val_lines = lines[split_idx:]
+    train_lines.sort()
+    val_lines.sort()
 
     # Write to train_list.txt
     with open('src/data/train_list.txt', 'w') as f:
@@ -97,6 +99,6 @@ def spit_category_lists():
 
         print(f"✅ {category}: {len(category_train_new)} train samples, {len(category_val_new)} val samples.")
 
-#split_train_val()
-#check_train_val_split()
-#spit_category_lists()
+split_train_val()
+check_train_val_split()
+spit_category_lists()
