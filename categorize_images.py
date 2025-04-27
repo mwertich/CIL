@@ -75,7 +75,7 @@ else:
 
 # Choose the category you want
 target_class = "dorm_room"
-output_file = f"{target_class}_files_test.txt"
+output_file = f"{target_class}_files.txt"
 
 # Write matching file names to output
 with open(output_file, "w") as f:

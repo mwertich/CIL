@@ -388,7 +388,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Fine-tune MiDaS model for indoor depth estimation by category.")
     parser.add_argument("--category", type=str, help="Category (e.g., kitchen, living_room, etc.)")
     parser.add_argument("--train-size", type=int, default=900, help="Subset size of training data")
-    parser.add_argument("--val-size", type=int, default=900, help="Subset size of validaton data")
+    parser.add_argument("--val-size", type=int, default=100, help="Subset size of validaton data")
     parser.add_argument("--epochs", type=int, default=8, help="Number of training epochs")
     parser.add_argument("--train-batch-size", type=int, default=3)
     parser.add_argument("--val-batch-size", type=int, default=3)
