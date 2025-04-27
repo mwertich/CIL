@@ -190,6 +190,7 @@ def finetune_model(model, train_loader, val_loader, out_path, epochs=5, lr=1e-5,
             running_loss += loss.item()
 
         end_time = datetime.now()
+        epoch_duration = end_time - start_time
         print(f"✅ Epoch [{epoch}/{epochs}] finished. Loss: {running_loss/len(train_loader):.4f}")
         print(f"🕒 Finished at {end_time.strftime('%Y-%m-%d %H:%M:%S')} (Duration: {str(epoch_duration)})")
         evaluate_model(model, val_loader, epoch)
