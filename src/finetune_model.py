@@ -65,7 +65,7 @@ class MiDaS_UQ(DPT):
         # return super().forward(x)#.squeeze(dim=1)
 
 class DepthUncertaintyLoss(nn.Module):
-    def __init__(self, eps=1e-6):
+    def __init__(self, eps=1e-8):
         super().__init__()
         self.gaussian_nll = nn.GaussianNLLLoss(eps=eps)
 
