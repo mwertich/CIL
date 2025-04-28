@@ -28,7 +28,7 @@ def torch_seed(seed=0):
 
 torch_seed()
 
-midas = torch.hub.load("intel-isl/MiDaS", "DPT_Large")
+midas = torch.hub.load("intel-isl/MiDaS", "DPT_Large", skip_validation=True)
 from midas.dpt_depth import DPT
 from midas.blocks import Interpolate
 
