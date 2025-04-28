@@ -47,19 +47,19 @@ class MiDaS_UQ(DPT):
             nn.Conv2d(head_features_1 // 2, head_features_2, kernel_size=3, stride=1, padding=1),
             nn.ReLU(True),
             nn.Conv2d(head_features_2, 2, kernel_size=1, stride=1, padding=0),
-            nn.ReLU(True) if non_negative else nn.Identity(),
             nn.Identity(),
         )
-
         super().__init__(head, **kwargs)
-
+        self.relu = nn.ReLU(True) if non_negative else nn.Identity()
+        self.softplus = nn.Softplus()
+        
         if path is not None:
             self.load(path)
 
     def forward(self, x):
-        output = super().forward(x)#.squeeze(dim=1)
-        depth = output[:, 0, :, :]#.squeeze(dim=1)
-        logvar_depth = output[:, 1, :, :]#.squeeze(dim=1)
+        output = super().forward(x)
+        depth = self.relu(output[:, 0, :, :])
+        logvar_depth = self.softplus(output[:, 1, :, :])
         return depth, logvar_depth
         
         # return super().forward(x)#.squeeze(dim=1)
@@ -70,8 +70,9 @@ class DepthUncertaintyLoss(nn.Module):
         self.gaussian_nll = nn.GaussianNLLLoss(eps=eps)
 
     def forward(self, depth_pred, logvar_pred, depth_gt):
-        var = torch.exp(logvar_pred).clamp(min=1e-6)
-        return self.gaussian_nll(depth_pred, depth_gt, var)
+        # var = torch.exp(logvar_pred).clamp(min=1e-6)
+        var = logvar_pred
+        return self.gaussian_nll(depth_pred, depth_gt, var)  # + (1 / var).mean() * 1e-1
 
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -378,7 +379,7 @@ def visualize_prediction_with_ground_truth(model, loader, num_images=5):
             pred_logvars_resized = torch.nn.functional.interpolate(
                 pred_logvars.unsqueeze(1), size=image_size, mode="bicubic", align_corners=False
             )
-            pred_logvars_resized = torch.exp(pred_logvars_resized).clamp(min=1e-6)
+            # pred_logvars_resized = torch.exp(pred_logvars_resized).clamp(min=1e-6)
             for image, depth, pred_depth, pred_logvar in zip(images, depths, pred_depths_resized, pred_logvars_resized): 
                 images_shown += 1
                 file_name = f"depth_maps/val/{run_id}/midas_uq_depth_map_{images_shown}.png"
@@ -409,7 +410,7 @@ def visualize_prediction_without_ground_truth(model, test_loader, num_images=5):
             pred_logvars_resized = torch.nn.functional.interpolate(
                 pred_logvars.unsqueeze(1), size=image_size, mode="bicubic", align_corners=False
             )
-            pred_logvars_resized = torch.exp(pred_logvars_resized).clamp(min=1e-6)
+            # pred_logvars_resized = torch.exp(pred_logvars_resized).clamp(min=1e-6)
             for image, pred_depth, pred_logvar in zip(images, pred_depths_resized, pred_logvars_resized): 
                 images_shown += 1
                 file_name = f"depth_maps/test/{run_id}/midas_uq_depth_map_{images_shown}.png"
