@@ -185,7 +185,7 @@ test_loader = DataLoader(test_dataset, batch_size=val_batch_size, shuffle=True)
 
 
 
-def scale_invariant_rmse_new(predicted, ground_truth):
+def scale_invariant_rmse(predicted, ground_truth):
     """
     predicted: Tensor of shape (B, 1, H, W)
     ground_truth: Tensor of shape (B, 1, H, W)
@@ -200,40 +200,14 @@ def scale_invariant_rmse_new(predicted, ground_truth):
     # Log difference
     log_diff = torch.log(predicted) - torch.log(ground_truth)
 
-    # Compute scale-invariant RMSE
-    squared_mean = torch.mean(log_diff ** 2, dim=1)
-    mean_squared = torch.mean(log_diff, dim=1) ** 2
-    loss = torch.sqrt(squared_mean - mean_squared)
-    return loss.mean()  # scalar
+    # Compute the global bias (alpha)
+    alpha = torch.mean(log_diff, dim=1, keepdim=True)
 
+    # Add bias and compute RMSE
+    corrected_diff = log_diff + alpha  # Important! Add bias before squaring
+    loss = torch.sqrt(torch.mean(corrected_diff ** 2, dim=1))
 
-def scale_invariant_rmse(predicted, ground_truth):
-    """
-    predicted: Tensor of shape (B, 1, H, W)
-    ground_truth: Tensor of shape (B, 1, H, W)
-    Returns: scalar tensor (loss value)
-    """
-
-    # Scale-Invariant RMSE Loss with NaN protection.
-
-    # Flatten to (B, H*W)
-    predicted = predicted.view(predicted.size(0), -1)
-    ground_truth = ground_truth.view(ground_truth.size(0), -1)
-
-    # Log transform
-    log_pred = torch.log(predicted)
-    log_gt = torch.log(ground_truth)
-
-    # Difference
-    d = log_pred - log_gt  # shape: (B, N)
-    n = d.shape[1]
-
-    # Alpha (per image in batch)
-    alpha = torch.mean(log_gt - log_pred, dim=1, keepdim=True)  # shape: (B, 1)
-
-    # Final loss
-    loss = torch.sqrt(torch.mean((d + alpha) ** 2, dim=1))  # shape: (B,)
-    return loss.mean()  # scalar
+    return loss.mean() # scalar
 
 
 def evaluate_model(model, val_loader, epoch):
