@@ -154,20 +154,27 @@ transform = torch.hub.load("intel-isl/MiDaS", "transforms").dpt_transform
 
 image_size = [426, 560]
 
-train_image_folder = "src/data/train"
-train_depth_folder = "src/data/train"
-test_image_folder = "src/data/test"
-test_depth_folder = "src/data/predictions"
+root = "src/data"
 
-#all_files = [f for f in os.listdir(image_folder) if f.endswith(".png")]
-train_image_depth_pairs = load_image_depth_pairs("src/data/train_list.txt")
-test_image_depth_pairs = load_image_depth_pairs("src/data/test_list.txt")
+train_image_folder = os.path.join(root, "train")
+train_depth_folder = os.path.join(root, "train")
+test_image_folder = os.path.join(root, "test")
+test_depth_folder = os.path.join(root, "predictions")
 
-subset_size = 2500 #23971
-val_size = 0.1
+train_list = f"train_list.txt"
+val_list = f"val_list.txt"
+test_list = f"test_list.txt"
 
-files = train_image_depth_pairs[:subset_size] if subset_size else train_image_depth_pairs
-train_pairs, val_pairs = train_test_split(files, test_size=val_size, random_state=42)
+train_image_depth_pairs = load_image_depth_pairs(os.path.join(root, train_list))
+val_image_depth_pairs = load_image_depth_pairs(os.path.join(root, val_list))
+test_image_depth_pairs = load_image_depth_pairs(os.path.join(root, test_list))
+
+train_size = 2500   #19176/23971
+val_size = 250       #4795/23971
+
+train_pairs = train_image_depth_pairs[:train_size] if train_size else train_image_depth_pairs
+val_pairs = train_image_depth_pairs[:val_size] if val_size else train_image_depth_pairs
+#train_pairs, val_pairs = train_test_split(files, test_size=val_percentage, random_state=42)
 test_pairs = test_image_depth_pairs
 
 
@@ -181,7 +188,7 @@ val_dataset = ImageDepthDataset(train_image_folder, train_depth_folder, transfor
 val_loader = DataLoader(val_dataset, batch_size=val_batch_size, shuffle=True)
 
 test_dataset = TestImageDepthDataset(test_image_folder, test_depth_folder, transform, test_pairs)
-test_loader = DataLoader(test_dataset, batch_size=val_batch_size, shuffle=True)
+test_loader = DataLoader(test_dataset, batch_size=test_batch_size, shuffle=True)
 
 
 
