@@ -9,7 +9,7 @@ from sklearn.model_selection import train_test_split
 import matplotlib.pyplot as plt
 import torchvision.transforms.functional as TF
 import argparse
-from datetime import datetime  # <<< new import for time
+from datetime import datetime
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 image_size = [426, 560]
@@ -25,9 +25,9 @@ class ImageDepthDataset(Dataset):
         return len(self.image_depth_file_pairs)
 
     def __getitem__(self, idx):
-        image_file, depth_file = self.image_depth_file_pairs[idx]
-        image_path = os.path.join(self.image_dir, image_file)
-        depth_path = os.path.join(self.depth_dir, depth_file)
+        image_file_name, depth_file_name = self.image_depth_file_pairs[idx]
+        image_path = os.path.join(self.image_dir, image_file_name)
+        depth_path = os.path.join(self.depth_dir, depth_file_name)
         image = cv2.imread(image_path)
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         depth = np.load(depth_path)
@@ -35,13 +35,12 @@ class ImageDepthDataset(Dataset):
         image = self.transform(image).squeeze(0)
         depth = torch.from_numpy(depth).unsqueeze(0).float()
 
-        return image, depth, image_file
+        return image, depth, image_file_name
     
 
 class TestImageDepthDataset(Dataset):
-    def __init__(self, image_dir, depth_dir, transform, image_depth_file_pairs):
+    def __init__(self, image_dir, transform, image_depth_file_pairs):
         self.image_dir = image_dir
-        self.depth_dir = depth_dir
         self.transform = transform
         self.image_depth_file_pairs = image_depth_file_pairs
 
@@ -49,14 +48,13 @@ class TestImageDepthDataset(Dataset):
         return len(self.image_depth_file_pairs)
 
     def __getitem__(self, idx):
-        image_file, depth_file = self.image_depth_file_pairs[idx]
-        image_path = os.path.join(self.image_dir, image_file)
-        depth_path = os.path.join(self.depth_dir, depth_file)
+        image_file_name, depth_file_name = self.image_depth_file_pairs[idx]
+        image_path = os.path.join(self.image_dir, image_file_name)
 
         image = cv2.imread(image_path)
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         image = self.transform(image).squeeze(0)
-        return image, depth_path
+        return image, depth_file_name
 
 
 def load_image_depth_pairs(file_path):
@@ -93,14 +91,17 @@ def scale_invariant_rmse(predicted, ground_truth):
     # Log difference
     log_diff = torch.log(predicted) - torch.log(ground_truth)
 
-    # Compute scale-invariant RMSE
-    squared_mean = torch.mean(log_diff ** 2, dim=1)
-    mean_squared = torch.mean(log_diff, dim=1) ** 2
-    loss = torch.sqrt(squared_mean - mean_squared)
+    # Compute the global bias (alpha)
+    alpha = torch.mean(log_diff, dim=1, keepdim=True)
+
+    # Add bias and compute RMSE
+    corrected_diff = log_diff + alpha  # Important! Add bias before squaring
+    loss = torch.sqrt(torch.mean(corrected_diff ** 2, dim=1))
+
     return loss.mean()  # scalar
 
 
-def scale_invariant_rmse_old(predicted, ground_truth):
+def scale_invariant_rmse_a(predicted, ground_truth):
     """
     predicted: Tensor of shape (B, 1, H, W)
     ground_truth: Tensor of shape (B, 1, H, W)
@@ -206,19 +207,19 @@ def finetune_model(model, train_loader, val_loader, out_path, epochs=5, lr=1e-5,
         print(f"✅ Fine-tuned model saved to {out_path}")
 
 
-def predict_model(model, test_loader):
+def predict_model(model, test_loader, pred_dir, eps = 1e-8):
     model.eval()
     with torch.no_grad():
-        for images, out_paths in test_loader:
+        for images, depth_file_names in test_loader:
             images = images.to(device)
 
             preds = model(images)
             preds_resized = torch.nn.functional.interpolate(
                 preds.unsqueeze(1), size=image_size, mode="bicubic", align_corners=False
             )
-            eps = 1e-8
             preds_resized = preds_resized.clamp(min=eps) # for numerical stability for RMSE to avoid nan values due to log(0)
-            for pred, out_path in zip(preds_resized, out_paths):
+            for pred, depth_file_name in zip(preds_resized, depth_file_names):
+                out_path = os.path.join(pred_dir, depth_file_name)
                 np.save(out_path, pred.cpu())
 
 
@@ -313,6 +314,7 @@ def main(args):
 
     root = "src/data"
     cluster_root = "/cluster/courses/cil/monocular_depth/data/"
+    #cluster_root = "src/data"
     category = args.category
 
     train_image_folder = os.path.join(cluster_root, "train")
@@ -325,9 +327,9 @@ def main(args):
         val_list = f"category_lists/{category}_val_list.txt"
         test_list = f"category_lists/{category}_test_list.txt"
     else:
-        train_list = "train_list.txt"
-        val_list = "val_list.txt"
-        test_list = "test_list.txt"
+        train_list = f"train_list.txt"
+        val_list = f"val_list.txt"
+        test_list = f"test_list.txt"
 
     train_image_depth_pairs = load_image_depth_pairs(os.path.join(root, train_list))
     val_image_depth_pairs = load_image_depth_pairs(os.path.join(root, val_list))
@@ -351,43 +353,42 @@ def main(args):
     val_dataset = ImageDepthDataset(train_image_folder, train_depth_folder, transform, val_pairs)
     val_loader = DataLoader(val_dataset, batch_size=val_batch_size, shuffle=True)
 
-    test_dataset = TestImageDepthDataset(test_image_folder, test_depth_folder, transform, test_pairs)
+    test_dataset = TestImageDepthDataset(test_image_folder, transform, test_pairs)
     test_loader = DataLoader(test_dataset, batch_size=test_batch_size, shuffle=True)
 
     if category: 
         model_path = f"models/model_{category}_finetuned.pth"
     else:
-        model_path = f"models/model_finetuned.pth"
+        model_path = f"models/model_finetuned_final.pth"
 
     num_epochs = args.epochs
 
-    finetune_model(model, train_loader, val_loader, out_path=f"models/model_{category}_finetuned.pth", epochs=num_epochs)
+    #finetune_model(model, train_loader, val_loader, out_path=model_path, epochs=num_epochs)
 
     # Reload the architecture
     model = torch.hub.load("intel-isl/MiDaS", "DPT_Large")
     model.to(device)
     # Load the fine-tuned weights
-    model_path = f"models/model_{category}_finetuned.pth"
     model.load_state_dict(torch.load(model_path, map_location=device))
     model.eval()
     print("✅ Loaded fine-tuned MiDaS model.")
 
     print("✅ Evaluate fine-tuned MiDaS model.")
-    #evaluate_model(model, val_loader, num_epochs)
+    evaluate_model(model, val_loader, num_epochs)
 
     print("✅ Predict with fine-tuned MiDaS model.")
     visualize_prediction_with_ground_truth(model, val_loader, num_images=10)
     visualize_prediction_without_ground_truth(model, test_loader, num_images=10)
-    #predict_model(model, test_loader)
+    #predict_model(model, test_loader, test_depth_folder)
     print("Finished")
 
 
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Fine-tune MiDaS model for indoor depth estimation by category.")
+    parser = argparse.ArgumentParser(description="Fine-tune MiDaS model for indoor depth estimation.")
     parser.add_argument("--category", type=str, help="Category (e.g., kitchen, living_room, etc.)")
-    parser.add_argument("--train-size", type=int, default=900, help="Subset size of training data")
+    parser.add_argument("--train-size", type=int, default=10000, help="Subset size of training data")
     parser.add_argument("--val-size", type=int, default=100, help="Subset size of validaton data")
     parser.add_argument("--epochs", type=int, default=8, help="Number of training epochs")
     parser.add_argument("--train-batch-size", type=int, default=3)
