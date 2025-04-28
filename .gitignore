@@ -19,6 +19,7 @@ lib64
 share/
 bin/
 *.cfg
+*.csv
 parts/
 sdist/
 var/
