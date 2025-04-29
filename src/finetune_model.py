@@ -4,6 +4,7 @@ import torch.nn as nn
 from utils.dataloader import get_dataloaders
 from utils.visualization import visualize_prediction_with_ground_truth, visualize_prediction_without_ground_truth
 from utils.loss_funcs import DepthUncertaintyLoss, scale_invariant_rmse
+from utils.utils import torch_seed
 from model import MiDaSUQ
 import numpy as np
 import cv2
@@ -20,17 +21,7 @@ from datetime import datetime
 run_id = datetime.now().strftime("%y%m%d_%H%M%S")
 print('---------------- Run id:', run_id, '----------------')
 
-def torch_seed(seed=0):
-    torch.manual_seed(seed)
-    random.seed(seed)
-    np.random.seed(seed)
-
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed(seed)
-        torch.cuda.manual_seed_all(seed)
-
 torch_seed()
-
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
