@@ -20,27 +20,6 @@ import random
 from pathlib import Path
 from datetime import datetime
 
-run_id = datetime.now().strftime("%y%m%d_%H%M%S")
-print('---------------- Run id:', run_id, '----------------')
-
-torch_seed()
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-# Load model and transforms
-# model = torch.hub.load("intel-isl/MiDaS", "DPT_Large")
-
-model = MiDaS_UQ(backbone="vitl16_384")
-state_dict = torch.load("models/model_finetuned_final.pth", map_location=device)
-filtered_state_dict = {
-    k: v for k, v in state_dict.items()
-    if "scratch.output_conv.4." not in k  # Exclude final conv layer
-}
-model.load_state_dict(filtered_state_dict, strict=False)
-transform = torch.hub.load("intel-isl/MiDaS", "transforms").dpt_transform
-
-image_size = [426, 560]
-train_loader, val_loader, test_loader = get_dataloaders(image_size=image_size)
-
 
 # Main training function
 def finetune_model(model, train_loader, val_loader, out_path, epochs=5, lr=1e-5):
@@ -83,7 +62,7 @@ def finetune_model(model, train_loader, val_loader, out_path, epochs=5, lr=1e-5)
             running_loss += loss.item()
 
         print(f"Epoch [{epoch+1}/{epochs}], Loss: {running_loss/len(train_loader):.4f}")
-        evaluate_model(model, val_loader, epoch)
+        evaluate_model(model, val_loader, epoch, device)
         # Save model after each epoch
         
         # model_path = f"models/model_finetuned_epoch_{epoch}.pth"
@@ -95,7 +74,28 @@ def finetune_model(model, train_loader, val_loader, out_path, epochs=5, lr=1e-5)
     print(f"✅ Fine-tuned model saved to {out_path}")
 
 
-num_epochs = 5
+
+run_id = datetime.now().strftime("%y%m%d_%H%M%S")
+print('---------------- Run id:', run_id, '----------------')
+
+torch_seed()
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+# Load model and transforms
+# model = torch.hub.load("intel-isl/MiDaS", "DPT_Large")
+model = MiDaSUQ(backbone="vitl16_384")
+state_dict = torch.load("models/best_model_epoch_2.5.pth", map_location=device)
+filtered_state_dict = {
+    k: v for k, v in state_dict.items()
+    if "scratch.output_conv.4." not in k  # Exclude final conv layer
+}
+model.load_state_dict(filtered_state_dict, strict=False)
+model.load_state_dict(state_dict, strict=False)
+
+image_size = [426, 560]
+train_loader, val_loader, test_loader = get_dataloaders(image_size=image_size)
+
+num_epochs = 1
 finetune_model(model, train_loader, val_loader, out_path=f"models/model_{run_id}_finetuned.pth", epochs=num_epochs)
 
 # Reload the architecture
