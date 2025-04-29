@@ -1,0 +1,351 @@
+import os
+import torch
+import torch.nn as nn
+from torch.utils.data import Dataset, DataLoader
+import numpy as np
+import cv2
+from tqdm import tqdm
+from sklearn.model_selection import train_test_split
+import matplotlib.pyplot as plt
+import torchvision.transforms.functional as TF
+
+
+device = torch.device('cpu')
+print("Using CPU")
+
+# Sharpening function
+def sharpen_image(image):
+    """
+    Sharpen the input image using a kernel.
+    Args:
+        image (ndarray): The input image (in RGB).
+    Returns:
+        sharpened_image (ndarray): The sharpened image.
+    """
+    kernel = np.array([[0, -1, 0],
+                       [-1, 5, -1],
+                       [0, -1, 0]])
+
+    # Convert image to BGR since OpenCV uses BGR format
+    image_bgr = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+
+    # Apply sharpening filter
+    sharpened_image = cv2.filter2D(image_bgr, -1, kernel)
+
+    # Convert it back to RGB
+    sharpened_image = cv2.cvtColor(sharpened_image, cv2.COLOR_BGR2RGB)
+    return sharpened_image
+
+
+class ImageDepthDataset(Dataset):
+    def __init__(self, image_dir, depth_dir, transform, image_depth_file_pairs, sharpen=True):
+        self.image_dir = image_dir
+        self.depth_dir = depth_dir
+        self.transform = transform
+        self.image_depth_file_pairs = image_depth_file_pairs
+        self.sharpen = sharpen
+
+    def __len__(self):
+        return len(self.image_depth_file_pairs)
+
+    def __getitem__(self, idx):
+        image_file, depth_file = self.image_depth_file_pairs[idx]
+        image_path = os.path.join(self.image_dir, image_file)
+        depth_path = os.path.join(self.depth_dir, depth_file)
+
+        image = cv2.imread(image_path)
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+
+        if self.sharpen:
+            image = sharpen_image(image)  # Apply sharpening
+
+        depth = np.load(depth_path)
+
+        image = self.transform(image).squeeze(0)
+        depth = torch.from_numpy(depth).unsqueeze(0).float()
+
+        return image, depth
+
+
+class TestImageDepthDataset(Dataset):
+    def __init__(self, image_dir, depth_dir, transform, image_depth_file_pairs, sharpen=True):
+        self.image_dir = image_dir
+        self.depth_dir = depth_dir
+        self.transform = transform
+        self.image_depth_file_pairs = image_depth_file_pairs
+        self.sharpen = sharpen
+
+    def __len__(self):
+        return len(self.image_depth_file_pairs)
+
+    def __getitem__(self, idx):
+        image_file, depth_file = self.image_depth_file_pairs[idx]
+        image_path = os.path.join(self.image_dir, image_file)
+        depth_path = os.path.join(self.depth_dir, depth_file)
+
+        image = cv2.imread(image_path)
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+
+        if self.sharpen:
+            image = sharpen_image(image)  # Apply sharpening
+
+        image = self.transform(image).squeeze(0)
+        return image, depth_path
+
+
+def load_image_depth_pairs(file_path):
+    """
+    Reads a text file containing pairs of image and depth file names.
+    Args:
+        file_path (str): Path to the text file.
+    Returns:
+        List[Tuple[str, str]]: List of (image_filename, depth_filename) pairs.
+    """
+    pairs = []
+    with open(file_path, 'r') as f:
+        for line in f:
+            parts = line.strip().split()
+            if len(parts) < 2:  # Check if there are fewer than 2 items in the parts
+                continue  # Skip this line if it's malformed
+            image_file = parts[0]
+            depth_file = parts[1]
+            pairs.append((image_file, depth_file))
+    return pairs
+
+
+# Load model and transforms
+model = torch.hub.load("intel-isl/MiDaS", "DPT_Large")
+transform = torch.hub.load("intel-isl/MiDaS", "transforms").dpt_transform
+
+image_size = [426, 560]
+
+data_path = ''
+train_image_folder = data_path + "train/train/"
+train_depth_folder = data_path + "train/train/"
+test_image_folder = data_path + "test/test/"
+test_depth_folder = "predictions"
+
+test_image_folder_sharp = data_path + "test_sharp/"
+test_depth_folder_sharp = "predictions_sharp"
+
+# Load image-depth pairs
+train_image_depth_pairs = load_image_depth_pairs(data_path + "train_list.txt")
+test_image_depth_pairs = load_image_depth_pairs(data_path + "test_list.txt")
+test_image_depth_pairs_sharp = load_image_depth_pairs(data_path + "sharp_list.txt")
+
+# Splitting data into train and validation
+subset_size = 500  # 23971
+val_size = 0.1
+files = train_image_depth_pairs[:subset_size] if subset_size else train_image_depth_pairs
+train_pairs, val_pairs = train_test_split(files, test_size=val_size, random_state=42)
+test_pairs = test_image_depth_pairs
+test_pairs_sharp = test_image_depth_pairs_sharp
+
+# Dataset and Dataloader
+train_batch_size, val_batch_size, test_batch_size = 1, 1, 1
+
+train_dataset = ImageDepthDataset(train_image_folder, train_depth_folder, transform, train_pairs, sharpen=True)
+train_loader = DataLoader(train_dataset, batch_size=train_batch_size, shuffle=True)
+
+val_dataset = ImageDepthDataset(train_image_folder, train_depth_folder, transform, val_pairs, sharpen=True)
+val_loader = DataLoader(val_dataset, batch_size=val_batch_size, shuffle=True)
+
+test_dataset = TestImageDepthDataset(test_image_folder, test_depth_folder, transform, test_pairs, sharpen=True)
+test_loader = DataLoader(test_dataset, batch_size=val_batch_size, shuffle=True)
+
+test_dataset_sharp = TestImageDepthDataset(test_image_folder_sharp, test_depth_folder_sharp, transform, test_pairs_sharp, sharpen=True)
+test_loader_sharp = DataLoader(test_dataset_sharp, batch_size=val_batch_size, shuffle=True)
+
+
+def scale_invariant_rmse(predicted, ground_truth):
+    """
+    predicted: Tensor of shape (B, 1, H, W)
+    ground_truth: Tensor of shape (B, 1, H, W)
+    Returns: scalar tensor (loss value)
+    """
+    predicted = predicted.view(predicted.size(0), -1)
+    ground_truth = ground_truth.view(ground_truth.size(0), -1)
+
+    log_pred = torch.log(predicted)
+    log_gt = torch.log(ground_truth)
+
+    d = log_pred - log_gt
+    n = d.shape[1]
+
+    alpha = torch.mean(log_gt - log_pred, dim=1, keepdim=True)
+
+    loss = torch.sqrt(torch.mean((d + alpha) ** 2, dim=1))  # shape: (B,)
+    return loss.mean()
+
+
+def finetune_model(model, train_loader, val_loader, epochs=5, lr=1e-5):
+    model.to(device)
+    model.train()
+
+    criterion = nn.L1Loss()
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+
+    # Lists to store loss values for plotting
+    train_losses = []
+    val_losses = []
+
+    for epoch in range(1, epochs + 1):
+        running_loss = 0.0
+        model.train()  # Ensure model is in training mode
+        for images, depths in tqdm(train_loader, desc=f"Epoch {epoch}/{epochs}"):
+            images, depths = images.to(device), depths.to(device)
+
+            optimizer.zero_grad()
+            outputs = model(images)
+
+            outputs_resized = torch.nn.functional.interpolate(
+                outputs.unsqueeze(1),
+                size=depths.shape[-2:],
+                mode="bicubic",
+                align_corners=False
+            ).squeeze(1)
+
+            loss = criterion(outputs_resized, depths.squeeze(1))
+            loss.backward()
+            optimizer.step()
+
+            running_loss += loss.item()
+
+        # Append training loss
+        train_losses.append(running_loss / len(train_loader))
+        print(f"Epoch [{epoch}/{epochs}], Loss: {running_loss / len(train_loader):.4f}")
+
+        # Evaluate on validation data and track validation loss
+        val_loss = evaluate_model(model, val_loader, epoch)
+        val_losses.append(val_loss)
+
+    # Save the fine-tuned model
+    torch.save(model.state_dict(), "models/model_finetuned_sharpened.pth")
+    print("✅ Fine-tuned model saved to models/model_finetuned_sharpened.pth")
+
+    # Plot the training and validation losses
+    plt.plot(range(1, epochs + 1), train_losses, label='Training Loss')
+    plt.plot(range(1, epochs + 1), val_losses, label='Validation Loss')
+    plt.xlabel('Epochs')
+    plt.ylabel('Loss')
+    plt.title('Training and Validation Loss over Epochs')
+    plt.legend()
+
+     # Save the plot to the 'results' folder
+    plot_filename = 'results/training_validation_loss.png'
+    plt.savefig(plot_filename)
+    print(f"✅ Plot saved to {plot_filename}")
+
+    # Optionally, show the plot as well
+    plt.show()
+
+def evaluate_model(model, val_loader, epoch):
+    model.eval()
+    total_rmse = 0.0
+    with torch.no_grad():
+        for images, depths in val_loader:
+            images = images.to(device)
+            depths = depths.to(device)
+
+            preds = model(images)
+            preds_resized = torch.nn.functional.interpolate(
+                preds.unsqueeze(1), size=depths.shape[-2:], mode="bicubic", align_corners=False
+            )
+
+            eps = 1e-8
+            preds_resized = preds_resized.clamp(min=eps)
+
+            loss = scale_invariant_rmse(preds_resized, depths)
+            total_rmse += loss.item()
+
+    avg_rmse = total_rmse / len(val_loader)
+    print(f"✅ Scale-Invariant RMSE after epoch {epoch + 1}: {avg_rmse:.4f}")
+    return avg_rmse  # Return validation loss (rmse) to track it
+
+
+
+def predict_model(model, test_loader):
+    model.eval()
+    with torch.no_grad():
+        for images, out_paths in test_loader:
+            images = images.to(device)
+
+            preds = model(images)
+            preds_resized = torch.nn.functional.interpolate(
+                preds.unsqueeze(1), size=image_size, mode="bicubic", align_corners=False
+            )
+            eps = 1e-8
+            preds_resized = preds_resized.clamp(min=eps)
+            for pred, out_path in zip(preds_resized, out_paths):
+                np.save(out_path, pred.cpu())
+
+
+def denormalize_image(tensor):
+    mean = torch.tensor([0.485, 0.456, 0.406]).view(3, 1, 1)
+    std = torch.tensor([0.229, 0.224, 0.225]).view(3, 1, 1)
+    tensor = tensor * std + mean
+    return tensor.clamp(0, 1)
+
+
+def visualize_depth_maps(plt_title, file_name, image, prediction, ground_truth=None):
+    img_vis = denormalize_image(image.squeeze(0).cpu())
+    img_np = TF.to_pil_image(img_vis)
+    pred_np = prediction.squeeze().cpu().numpy()
+    pred_disp = (pred_np - pred_np.min()) / (pred_np.max() - pred_np.min())
+
+    if ground_truth is not None:
+        depth_np = ground_truth.squeeze().cpu().numpy()
+        gt_disp = (depth_np - depth_np.min()) / (depth_np.max() - depth_np.min())
+        captions = ["Input Image", "Ground Truth", "Predicted Depth"]
+        plot_images = [img_np, gt_disp, pred_disp]
+    else:
+        captions = ["Input Image", "Predicted Depth"]
+        plot_images = [img_np, pred_disp]
+
+    fig, axs = plt.subplots(1, len(captions), figsize=(12, 4))
+    for (i, (caption, plot_img)) in enumerate(zip(captions, plot_images)):
+        axs[i].set_title(caption)
+        if i == 0:
+            axs[i].imshow(plot_img)
+        else:
+            axs[i].imshow(plot_img, cmap="plasma")
+
+    for ax in axs:
+        ax.axis("off")
+    plt.tight_layout()
+    plt.show()
+    plt.savefig(file_name)
+
+
+def visualize_prediction_without_ground_truth(model, test_loader, num_images=5):
+    model.eval()
+
+    images_shown = 0
+    with torch.no_grad():
+        for images, out_paths in test_loader:
+            images = images.to(device)
+            pred = model(images)
+            pred_resized = torch.nn.functional.interpolate(
+                pred.unsqueeze(1), size=image_size, mode="bicubic", align_corners=False
+            )
+            for image, prediction, out_path in zip(images, pred_resized, out_paths):
+                images_shown += 1
+                file_name = f"depth_maps/test/depth_map_{images_shown}.png"
+                visualize_depth_maps("Depths Map Test Set", file_name, image, prediction)
+                if images_shown >= num_images:
+                    return
+
+
+# Fine-tuning the model
+num_epochs = 5
+#finetune_model(model, train_loader, val_loader, epochs=num_epochs)
+
+# Reload and evaluate the fine-tuned model
+model = torch.hub.load("intel-isl/MiDaS", "DPT_Large")
+model.to(device)
+model.load_state_dict(torch.load("models/model_finetuned_sharpened_best_checkpoint.pth", map_location=device))
+model.eval()
+
+predict_model(model, test_loader)
+# Predicting on test set
+#visualize_prediction_without_ground_truth(model, test_loader_sharp, num_images=10)

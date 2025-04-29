@@ -1,0 +1,10 @@
+test_000143_rgb.png test_000143_depth.npy
+test_000147_rgb.png test_000147_depth.npy
+test_000148_rgb.png test_000148_depth.npy
+test_000154_rgb.png test_000154_depth.npy
+test_000161_rgb.png test_000161_depth.npy
+test_000170_rgb.png test_000170_depth.npy
+test_000172_rgb.png test_000172_depth.npy
+test_000204_rgb.png test_000204_depth.npy
+test_000213_rgb.png test_000213_depth.npy
+test_000216_rgb.png test_000216_depth.npy
