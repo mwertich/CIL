@@ -27,7 +27,7 @@ def evaluate_model(model, val_loader, epoch, device):
 
     avg_rmse = total_rmse / len(val_loader)
     if epoch is not None:
-        print(f"✅ Scale-Invariant RMSE after epoch {epoch+1}: {avg_rmse:.4f}")
+        print(f"✅ Scale-Invariant RMSE after epoch {epoch}: {avg_rmse:.4f}")
     else:
         print(f"✅ Scale-Invariant RMSE: {avg_rmse:.4f}")
 

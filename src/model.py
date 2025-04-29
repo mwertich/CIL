@@ -32,6 +32,6 @@ class MiDaSUQ(DPT):
     def forward(self, x):
         output = super().forward(x)
         depth = self.relu(output[:, 0, :, :])
-        logvar_depth = self.softplus(output[:, 1, :, :])
+        logvar_depth = self.softplus(output[:, 1, :, :]) + 1e-6 # ensure positivity
         return depth, logvar_depth
 

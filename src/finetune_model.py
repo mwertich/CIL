@@ -61,7 +61,7 @@ def finetune_model(model, train_loader, val_loader, out_path, epochs=5, lr=1e-5)
 
             running_loss += loss.item()
 
-        print(f"Epoch [{epoch+1}/{epochs}], Loss: {running_loss/len(train_loader):.4f}")
+        print(f"Epoch [{epoch}/{epochs}], Loss: {running_loss/len(train_loader):.4f}")
         evaluate_model(model, val_loader, epoch, device)
         # Save model after each epoch
         

@@ -106,7 +106,7 @@ def visualize_prediction_without_ground_truth(model, test_loader, run_id, image_
             for image, pred_depth, pred_logvar in zip(images, pred_depths_resized, pred_logvars_resized): 
                 images_shown += 1
                 file_name = f"depth_maps/test/{run_id}/midas_uq_depth_map_{images_shown}.png"
-                visualize_depth_maps("Depths Map Validation Set", file_name, image, pred_depth, pred_logvar)
+                visualize_depth_maps("Depths Map Test Set", file_name, image, pred_depth, pred_logvar)
                 # file_name = f"depth_maps/val/midas_uq_logvar_map_{images_shown}.png"
                 # visualize_depth_maps("Uncertainty Map Validation Set", file_name, image, pred_logvar, uncertainty=True)
                 if images_shown >= num_images:
