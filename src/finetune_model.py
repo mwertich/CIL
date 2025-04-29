@@ -238,7 +238,7 @@ def evaluate_model(model, val_loader, epoch):
             total_rmse += loss.item()
 
     avg_rmse = total_rmse / len(val_loader)
-    print(f"✅ Scale-Invariant RMSE after epoch {epoch+1}: {avg_rmse:.4f}")
+    print(f"✅ Scale-Invariant RMSE after epoch {epoch}: {avg_rmse:.4f}")
 
 
 
@@ -282,7 +282,7 @@ def finetune_model(model, train_loader, val_loader, out_path, epochs=5, lr=1e-5)
 
             running_loss += loss.item()
 
-        print(f"Epoch [{epoch+1}/{epochs}], Loss: {running_loss/len(train_loader):.4f}")
+        print(f"Epoch [{epoch}/{epochs}], Loss: {running_loss/len(train_loader):.4f}")
         evaluate_model(model, val_loader, epoch)
         # Save model after each epoch
         
@@ -414,7 +414,7 @@ def visualize_prediction_without_ground_truth(model, test_loader, num_images=5):
             for image, pred_depth, pred_logvar in zip(images, pred_depths_resized, pred_logvars_resized): 
                 images_shown += 1
                 file_name = f"depth_maps/test/{run_id}/midas_uq_depth_map_{images_shown}.png"
-                visualize_depth_maps("Depths Map Validation Set", file_name, image, pred_depth, pred_logvar)
+                visualize_depth_maps("Depths Map Test Set", file_name, image, pred_depth, pred_logvar)
                 # file_name = f"depth_maps/val/midas_uq_logvar_map_{images_shown}.png"
                 # visualize_depth_maps("Uncertainty Map Validation Set", file_name, image, pred_logvar, uncertainty=True)
                 if images_shown >= num_images:
