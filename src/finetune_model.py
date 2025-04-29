@@ -7,6 +7,7 @@ from utils.loss_funcs import DepthUncertaintyLoss, scale_invariant_rmse
 from utils.utils import torch_seed
 from model import MiDaSUQ
 from evaluate import evaluate_model
+from predict import predict_model
 import numpy as np
 import cv2
 from tqdm import tqdm
@@ -23,7 +24,6 @@ run_id = datetime.now().strftime("%y%m%d_%H%M%S")
 print('---------------- Run id:', run_id, '----------------')
 
 torch_seed()
-
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # Load model and transforms
@@ -95,22 +95,6 @@ def finetune_model(model, train_loader, val_loader, out_path, epochs=5, lr=1e-5)
     print(f"✅ Fine-tuned model saved to {out_path}")
 
 
-# def predict_model(model, test_loader):
-#     model.eval()
-#     with torch.no_grad():
-#         for images, out_paths in test_loader:
-#             images = images.to(device)
-
-#             preds, _ = model(images)
-#             preds_resized = torch.nn.functional.interpolate(
-#                 preds.unsqueeze(1), size=image_size, mode="bicubic", align_corners=False
-#             )
-#             eps = 1e-8
-#             preds_resized = preds_resized.clamp(min=eps) # for numerical stability for RMSE to avoid nan values due to log(0)
-#             for pred, out_path in zip(preds_resized, out_paths):
-#                 np.save(out_path, pred.cpu())
-
-
 num_epochs = 5
 finetune_model(model, train_loader, val_loader, out_path=f"models/model_{run_id}_finetuned.pth", epochs=num_epochs)
 
@@ -120,10 +104,15 @@ finetune_model(model, train_loader, val_loader, out_path=f"models/model_{run_id}
 
 # Load the fine-tuned weights
 # model.load_state_dict(torch.load("models/model_finetuned_final.pth", map_location=device))
+# model = MiDaSUQ(backbone="vitl16_384")
+# state_dict = torch.load("models/model_finetuned_trained.pth", map_location=device)
+# model.load_state_dict(state_dict, strict=True)
+
+model.to(device)
 model.eval()
 
 print("✅ Loaded fine-tuned MiDaS model.")
-#evaluate_model(model, val_loader, None, device)
+# evaluate_model(model, val_loader, None, device)
 visualize_prediction_with_ground_truth(model, val_loader, run_id, image_size, device, num_images=10)
-#predict_model(model, test_loader)
+# predict_model(model, test_loader, image_size, device)
 visualize_prediction_without_ground_truth(model, test_loader, run_id,  image_size, device, num_images=10)
