@@ -69,7 +69,7 @@ def load_image_depth_pairs(file_path):
 
 
 
-def get_dataloaders(image_size):
+def get_dataloaders(image_size, train_size, val_size, batch_size):
 
     transform = torch.hub.load("intel-isl/MiDaS", "transforms").dpt_transform
     
@@ -88,15 +88,15 @@ def get_dataloaders(image_size):
     val_image_depth_pairs = load_image_depth_pairs(os.path.join(root, val_list))
     test_image_depth_pairs = load_image_depth_pairs(os.path.join(root, test_list))
 
-    train_size = 5  #19176/23971
-    val_size = 250       #4795/23971
+    # train_size = 5  #19176/23971
+    # val_size = 250       #4795/23971
 
     train_pairs = train_image_depth_pairs[:train_size] if train_size else train_image_depth_pairs
     val_pairs = train_image_depth_pairs[:val_size] if val_size else train_image_depth_pairs
     test_pairs = test_image_depth_pairs
 
     # Dataset and Dataloader
-    train_batch_size, val_batch_size, test_batch_size = 3, 3, 3
+    train_batch_size, val_batch_size, test_batch_size = batch_size, batch_size, batch_size
 
     train_dataset = ImageDepthDataset(train_image_folder, train_depth_folder, transform, train_pairs)
     train_loader = DataLoader(train_dataset, batch_size=train_batch_size, shuffle=True)
@@ -107,3 +107,25 @@ def get_dataloaders(image_size):
     test_dataset = TestImageDepthDataset(test_image_folder, test_depth_folder, transform, test_pairs)
     test_loader = DataLoader(test_dataset, batch_size=test_batch_size, shuffle=True)
     return train_loader, val_loader, test_loader
+
+
+def get_dataloader(image_size, mode, set_size, batch_size):
+    transform = torch.hub.load("intel-isl/MiDaS", "transforms").dpt_transform
+    
+    root = "src/data"
+    image_folder = os.path.join(root, "train") if mode in ['train', 'val'] else os.path.join(root, "test")
+    depth_folder = image_folder if mode in ['train', 'val'] else os.path.join(root, "predictions")
+
+    list_ = "train_list.txt" if mode in ['train', 'val'] else "test_list.txt"
+    image_depth_pairs = load_image_depth_pairs(os.path.join(root, list_))
+
+    pairs = image_depth_pairs[:set_size] if set_size and mode in ['train', 'val'] else image_depth_pairs
+
+    dataset = None
+    if mode in ['train', 'val']:
+        dataset = ImageDepthDataset(image_folder, depth_folder, transform, pairs)
+    else:
+        dataset = TestImageDepthDataset(image_folder, depth_folder, transform, pairs)
+    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+
+    return dataloader

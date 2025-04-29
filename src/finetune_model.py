@@ -1,7 +1,8 @@
 import os
+import argparse
 import torch
 import torch.nn as nn
-from utils.dataloader import get_dataloaders
+from utils.dataloader import get_dataloader
 from utils.visualization import visualize_prediction_with_ground_truth, visualize_prediction_without_ground_truth
 from utils.loss_funcs import DepthUncertaintyLoss, scale_invariant_rmse
 from utils.utils import torch_seed
@@ -74,45 +75,59 @@ def finetune_model(model, train_loader, val_loader, out_path, epochs=5, lr=1e-5)
     print(f"✅ Fine-tuned model saved to {out_path}")
 
 
+if __name__ == "__main__":
+    args = argparse.ArgumentParser(description='PyTorch Template')
+    args.add_argument('-p', '--pretrained', default=None, type=str,
+                      help='pretrained model path (default: None)')
+    args.add_argument('-e', '--epochs', default=None, type=int,
+                      help='number of epochs for finetuning (default: None)')
+    args.add_argument('-t', '--train_size', default=None, type=int,
+                      help='training set size (default: None)')
+    args.add_argument('-v', '--val_size', default=None, type=int,
+                      help='validation set size (default: None)')
+    args.add_argument('-b', '--batch_size', default=None, type=int,
+                      help='batch size for dataloaders (default: None)')
+    config = args.parse_args()
 
-run_id = datetime.now().strftime("%y%m%d_%H%M%S")
-print('---------------- Run id:', run_id, '----------------')
+    run_id = datetime.now().strftime("%y%m%d_%H%M%S")
+    print('---------------- Run id:', run_id, '----------------')
 
-torch_seed()
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    torch_seed()
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-# Load model and transforms
-# model = torch.hub.load("intel-isl/MiDaS", "DPT_Large")
-model = MiDaSUQ(backbone="vitl16_384")
-state_dict = torch.load("/models/model_finetuned_final.pth", map_location=device)
-filtered_state_dict = {
-    k: v for k, v in state_dict.items()
-    if "scratch.output_conv.4." not in k  # Exclude final conv layer
-}
-model.load_state_dict(filtered_state_dict, strict=False)
-# model.load_state_dict(state_dict, strict=False)
+    # Load model and transforms
+    # model = torch.hub.load("intel-isl/MiDaS", "DPT_Large")
+    model = MiDaSUQ(backbone="vitl16_384")
+    state_dict = torch.load(config.pretrained, map_location=device)
+    filtered_state_dict = {
+        k: v for k, v in state_dict.items()
+        if "scratch.output_conv.4." not in k  # Exclude final conv layer
+    }
+    model.load_state_dict(filtered_state_dict, strict=False)
 
-image_size = [426, 560]
-train_loader, val_loader, test_loader = get_dataloaders(image_size=image_size)
+    image_size = [426, 560]
+    train_loader = get_dataloader(image_size=image_size, mode='train', set_size=config.train_size, batch_size=config.batch_size)
+    val_loader   = get_dataloader(image_size=image_size, mode='val', set_size=config.val_size, batch_size=config.batch_size)
+    test_loader  = get_dataloader(image_size=image_size, mode='test', set_size=None, batch_size=config.batch_size)
 
-num_epochs = 1
-finetune_model(model, train_loader, val_loader, out_path=f"models/model_{run_id}_finetuned.pth", epochs=num_epochs)
+    # num_epochs = 1
+    finetune_model(model, train_loader, val_loader, out_path=f"models/model_{run_id}_finetuned.pth", epochs=config.epochs)
 
-# Reload the architecture
-# model = torch.hub.load("intel-isl/MiDaS", "DPT_Large")
-# model.to(device)
+    # Reload the architecture
+    # model = torch.hub.load("intel-isl/MiDaS", "DPT_Large")
+    # model.to(device)
 
-# Load the fine-tuned weights
-# model.load_state_dict(torch.load("models/model_finetuned_final.pth", map_location=device))
-# model = MiDaSUQ(backbone="vitl16_384")
-# state_dict = torch.load("models/model_finetuned_trained.pth", map_location=device)
-# model.load_state_dict(state_dict, strict=True)
+    # Load the fine-tuned weights
+    # model.load_state_dict(torch.load("models/model_finetuned_final.pth", map_location=device))
+    # model = MiDaSUQ(backbone="vitl16_384")
+    # state_dict = torch.load("models/model_finetuned_trained.pth", map_location=device)
+    # model.load_state_dict(state_dict, strict=True)
 
-model.to(device)
-model.eval()
+    model.to(device)
+    model.eval()
 
-print("✅ Loaded fine-tuned MiDaS model.")
-# evaluate_model(model, val_loader, None, device)
-visualize_prediction_with_ground_truth(model, val_loader, run_id, image_size, device, num_images=10)
-# predict_model(model, test_loader, image_size, device)
-visualize_prediction_without_ground_truth(model, test_loader, run_id,  image_size, device, num_images=10)
+    print("✅ Loaded fine-tuned MiDaS model.")
+    # evaluate_model(model, val_loader, None, device)
+    visualize_prediction_with_ground_truth(model, val_loader, run_id, image_size, device, num_images=10)
+    # predict_model(model, test_loader, image_size, device)
+    visualize_prediction_without_ground_truth(model, test_loader, run_id,  image_size, device, num_images=10)
