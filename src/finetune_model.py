@@ -3,6 +3,8 @@ import torch
 import torch.nn as nn
 from utils.dataloader import get_dataloaders
 from utils.visualization import visualize_prediction_with_ground_truth, visualize_prediction_without_ground_truth
+from utils.loss_funcs import DepthUncertaintyLoss, scale_invariant_rmse
+from model import MiDaSUQ
 import numpy as np
 import cv2
 from tqdm import tqdm
@@ -29,52 +31,6 @@ def torch_seed(seed=0):
 
 torch_seed()
 
-midas = torch.hub.load("intel-isl/MiDaS", "DPT_Large", skip_validation=True)
-from midas.dpt_depth import DPT
-from midas.blocks import Interpolate
-
-
-class MiDaS_UQ(DPT):
-    def __init__(self, path=None, non_negative=True, **kwargs):
-        features = kwargs["features"] if "features" in kwargs else 256
-        head_features_1 = kwargs["head_features_1"] if "head_features_1" in kwargs else features
-        head_features_2 = kwargs["head_features_2"] if "head_features_2" in kwargs else 32
-        kwargs.pop("head_features_1", None)
-        kwargs.pop("head_features_2", None)
-
-        head = nn.Sequential(
-            nn.Conv2d(head_features_1, head_features_1 // 2, kernel_size=3, stride=1, padding=1),
-            Interpolate(scale_factor=2, mode="bilinear", align_corners=True),
-            nn.Conv2d(head_features_1 // 2, head_features_2, kernel_size=3, stride=1, padding=1),
-            nn.ReLU(True),
-            nn.Conv2d(head_features_2, 2, kernel_size=1, stride=1, padding=0),
-            nn.Identity(),
-        )
-        super().__init__(head, **kwargs)
-        self.relu = nn.ReLU(True) if non_negative else nn.Identity()
-        self.softplus = nn.Softplus()
-        
-        if path is not None:
-            self.load(path)
-
-    def forward(self, x):
-        output = super().forward(x)
-        depth = self.relu(output[:, 0, :, :])
-        logvar_depth = self.softplus(output[:, 1, :, :])
-        return depth, logvar_depth
-        
-        # return super().forward(x)#.squeeze(dim=1)
-
-class DepthUncertaintyLoss(nn.Module):
-    def __init__(self, eps=1e-8):
-        super().__init__()
-        self.gaussian_nll = nn.GaussianNLLLoss(eps=eps)
-
-    def forward(self, depth_pred, logvar_pred, depth_gt):
-        # var = torch.exp(logvar_pred).clamp(min=1e-6)
-        var = logvar_pred
-        return self.gaussian_nll(depth_pred, depth_gt, var)  # + (1 / var).mean() * 1e-1
-
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -92,30 +48,6 @@ transform = torch.hub.load("intel-isl/MiDaS", "transforms").dpt_transform
 
 image_size = [426, 560]
 train_loader, val_loader, test_loader = get_dataloaders(image_size=image_size)
-
-def scale_invariant_rmse(predicted, ground_truth):
-    """
-    predicted: Tensor of shape (B, 1, H, W)
-    ground_truth: Tensor of shape (B, 1, H, W)
-    Returns: scalar tensor (loss value)
-    """
-
-    # Flatten spatial dimensions
-    B = predicted.size(0)
-    predicted = predicted.reshape(B, -1)
-    ground_truth = ground_truth.reshape(B, -1)
-
-    # Log difference
-    log_diff = torch.log(predicted) - torch.log(ground_truth)
-
-    # Compute the global bias (alpha)
-    alpha = torch.mean(log_diff, dim=1, keepdim=True)
-
-    # Add bias and compute RMSE
-    corrected_diff = log_diff + alpha  # Important! Add bias before squaring
-    loss = torch.sqrt(torch.mean(corrected_diff ** 2, dim=1))
-
-    return loss.mean() # scalar
 
 
 def evaluate_model(model, val_loader, epoch):
