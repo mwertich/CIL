@@ -6,6 +6,7 @@ from utils.visualization import visualize_prediction_with_ground_truth, visualiz
 from utils.loss_funcs import DepthUncertaintyLoss, scale_invariant_rmse
 from utils.utils import torch_seed
 from model import MiDaSUQ
+from evaluate import evaluate_model
 import numpy as np
 import cv2
 from tqdm import tqdm
@@ -39,29 +40,6 @@ transform = torch.hub.load("intel-isl/MiDaS", "transforms").dpt_transform
 
 image_size = [426, 560]
 train_loader, val_loader, test_loader = get_dataloaders(image_size=image_size)
-
-
-def evaluate_model(model, val_loader, epoch):
-    model.eval()
-    total_rmse = 0.0
-    with torch.no_grad():
-        for images, depths in val_loader:
-            images = images.to(device)
-            depths = depths.to(device)
-            
-            depth, _ = model(images)
-            depth_resized = torch.nn.functional.interpolate(
-                depth.unsqueeze(1), size=depths.shape[-2:], mode="bicubic", align_corners=False
-            )
-
-            eps = 1e-8
-            preds_resized = depth_resized.clamp(min=eps) # for numerical stability for RMSE to avoid nan values due to log(0)
-
-            loss = scale_invariant_rmse(preds_resized, depths)
-            total_rmse += loss.item()
-
-    avg_rmse = total_rmse / len(val_loader)
-    print(f"✅ Scale-Invariant RMSE after epoch {epoch+1}: {avg_rmse:.4f}")
 
 
 # Main training function
@@ -145,7 +123,7 @@ finetune_model(model, train_loader, val_loader, out_path=f"models/model_{run_id}
 model.eval()
 
 print("✅ Loaded fine-tuned MiDaS model.")
-#evaluate_model(model, val_loader, num_epochs)
+#evaluate_model(model, val_loader, None, device)
 visualize_prediction_with_ground_truth(model, val_loader, run_id, image_size, device, num_images=10)
 #predict_model(model, test_loader)
 visualize_prediction_without_ground_truth(model, test_loader, run_id,  image_size, device, num_images=10)
