@@ -10,6 +10,7 @@ class DepthUncertaintyLoss(nn.Module):
         self.gaussian_nll = nn.GaussianNLLLoss(eps=eps)
 
     def forward(self, depth_pred, var_pred, depth_gt, logvar=False):
+        var_pred = nn.functional.relu(var_pred) # TODO: find a better way to ensure positive variance
         if logvar:
             var_pred = torch.exp(var_pred).clamp(min=self.eps)
         return self.gaussian_nll(depth_pred, depth_gt, var_pred) 

@@ -84,13 +84,13 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # Load model and transforms
 # model = torch.hub.load("intel-isl/MiDaS", "DPT_Large")
 model = MiDaSUQ(backbone="vitl16_384")
-state_dict = torch.load("models/best_model_epoch_2.5.pth", map_location=device)
+state_dict = torch.load("/models/model_finetuned_final.pth", map_location=device)
 filtered_state_dict = {
     k: v for k, v in state_dict.items()
     if "scratch.output_conv.4." not in k  # Exclude final conv layer
 }
 model.load_state_dict(filtered_state_dict, strict=False)
-model.load_state_dict(state_dict, strict=False)
+# model.load_state_dict(state_dict, strict=False)
 
 image_size = [426, 560]
 train_loader, val_loader, test_loader = get_dataloaders(image_size=image_size)
