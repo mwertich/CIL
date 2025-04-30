@@ -116,7 +116,7 @@ def get_dataloader(image_size, mode, set_size, batch_size):
     image_folder = os.path.join(root, "train") if mode in ['train', 'val'] else os.path.join(root, "test")
     depth_folder = image_folder if mode in ['train', 'val'] else os.path.join(root, "predictions")
 
-    list_ = "train_list.txt" if mode in ['train', 'val'] else "test_list.txt"
+    list_ = f"{mode}_list.txt"
     image_depth_pairs = load_image_depth_pairs(os.path.join(root, list_))
 
     pairs = image_depth_pairs[:set_size] if set_size and mode in ['train', 'val'] else image_depth_pairs
