@@ -109,7 +109,7 @@ def get_dataloaders(image_size, train_size, val_size, batch_size):
     return train_loader, val_loader, test_loader
 
 
-def get_dataloader(image_size, mode, set_size, batch_size):
+def get_dataloader(mode, set_size, batch_size):
     transform = torch.hub.load("intel-isl/MiDaS", "transforms").dpt_transform
     
     root = "src/data"

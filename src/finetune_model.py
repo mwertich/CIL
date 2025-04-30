@@ -106,9 +106,9 @@ if __name__ == "__main__":
     model.load_state_dict(filtered_state_dict, strict=False)
 
     image_size = [426, 560]
-    train_loader = get_dataloader(image_size=image_size, mode='train', set_size=config.train_size, batch_size=config.batch_size)
-    val_loader   = get_dataloader(image_size=image_size, mode='val', set_size=config.val_size, batch_size=config.batch_size)
-    test_loader  = get_dataloader(image_size=image_size, mode='test', set_size=None, batch_size=config.batch_size)
+    train_loader = get_dataloader(mode='train', set_size=config.train_size, batch_size=config.batch_size)
+    val_loader   = get_dataloader(mode='val', set_size=config.val_size, batch_size=config.batch_size)
+    test_loader  = get_dataloader(mode='test', set_size=None, batch_size=config.batch_size)
 
     # num_epochs = 1
     finetune_model(model, train_loader, val_loader, out_path=f"models/model_{run_id}_finetuned.pth", epochs=config.epochs)
