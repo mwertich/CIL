@@ -1,5 +1,5 @@
 from model import MiDaSUQ
-from utils.dataloader import get_dataloaders
+from utils.dataloader import get_dataloader
 from utils.utils import torch_seed
 from utils.loss_funcs import scale_invariant_rmse
 from datetime import datetime
