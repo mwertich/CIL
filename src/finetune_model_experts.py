@@ -14,6 +14,42 @@ from datetime import datetime
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 image_size = [426, 560]
 
+
+midas = torch.hub.load("intel-isl/MiDaS", "DPT_Large", pretrained=False)
+from midas.dpt_depth import DPT
+from midas.blocks import Interpolate
+
+
+class MiDaS_UQ(DPT):
+    def __init__(self, path=None, non_negative=True, **kwargs):
+        features = kwargs["features"] if "features" in kwargs else 256
+        head_features_1 = kwargs["head_features_1"] if "head_features_1" in kwargs else features
+        head_features_2 = kwargs["head_features_2"] if "head_features_2" in kwargs else 32
+        kwargs.pop("head_features_1", None)
+        kwargs.pop("head_features_2", None)
+
+        head = nn.Sequential(
+            nn.Conv2d(head_features_1, head_features_1 // 2, kernel_size=3, stride=1, padding=1),
+            Interpolate(scale_factor=2, mode="bilinear", align_corners=True),
+            nn.Conv2d(head_features_1 // 2, head_features_2, kernel_size=3, stride=1, padding=1),
+            nn.ReLU(True),
+            nn.Conv2d(head_features_2, 2, kernel_size=1, stride=1, padding=0),
+            nn.Identity(),
+        )
+        super().__init__(head, **kwargs)
+        self.relu = nn.ReLU(True) if non_negative else nn.Identity()
+        self.softplus = nn.Softplus()
+        
+        if path is not None:
+            self.load(path)
+
+    def forward(self, x):
+        output = super().forward(x)
+        depth = self.relu(output[:, 0, :, :])
+        logvar_depth = self.softplus(output[:, 1, :, :])
+        return depth, logvar_depth
+
+
 class ImageDepthDataset(Dataset):
     def __init__(self, image_dir, depth_dir, transform, image_depth_file_pairs):
         self.image_dir = image_dir
@@ -110,6 +146,8 @@ def evaluate_model(model, val_loader, epoch):
             depths = depths.to(device)
 
             preds = model(images)
+            if args.uq:
+                preds = preds[0]
             preds_resized = torch.nn.functional.interpolate(
                 preds.unsqueeze(1), size=depths.shape[-2:], mode="bicubic", align_corners=False
             )
@@ -185,6 +223,8 @@ def predict_model(model, test_loader, pred_dir, eps = 1e-8):
             images = images.to(device)
 
             preds = model(images)
+            if args.uq:
+                preds = preds[0]
             preds_resized = torch.nn.functional.interpolate(
                 preds.unsqueeze(1), size=image_size, mode="bicubic", align_corners=False
             )
@@ -248,6 +288,8 @@ def visualize_prediction_with_ground_truth(model, loader, num_images=5):
             images = images.to(device)
             depths = depths.to(device)
             pred = model(images)
+            if args.uq:
+                pred = pred[0]
             pred_resized = torch.nn.functional.interpolate(
                 pred.unsqueeze(1), size=depths.shape[-2:], mode="bicubic", align_corners=False
             )
@@ -267,6 +309,8 @@ def visualize_prediction_without_ground_truth(model, test_loader, num_images=5):
 
             images = images.to(device)
             pred = model(images)
+            if args.uq:
+                pred = pred[0]
             pred_resized = torch.nn.functional.interpolate(
                 pred.unsqueeze(1), size=image_size, mode="bicubic", align_corners=False
             )
@@ -279,13 +323,9 @@ def visualize_prediction_without_ground_truth(model, test_loader, num_images=5):
 
 
 def main(args):
-    # Load model and transforms
-    model = torch.hub.load("intel-isl/MiDaS", "DPT_Large")
-    transform = torch.hub.load("intel-isl/MiDaS", "transforms").dpt_transform
-
     root = "src/data"
-    cluster_root = "/cluster/courses/cil/monocular_depth/data/"
-    #cluster_root = "src/data"
+    #cluster_root = "/cluster/courses/cil/monocular_depth/data/"
+    cluster_root = "src/data"
     category = args.category
 
     train_image_folder = os.path.join(cluster_root, "train")
@@ -315,6 +355,9 @@ def main(args):
     test_pairs = test_image_depth_pairs
 
 
+    #load transform
+    transform = torch.hub.load("intel-isl/MiDaS", "transforms").dpt_transform
+
     # Dataset and Dataloader
     train_batch_size, val_batch_size, test_batch_size = args.train_batch_size, args.val_batch_size, args.test_batch_size
 
@@ -330,14 +373,21 @@ def main(args):
     if category: 
         model_path = f"models/model_{category}_finetuned.pth"
     else:
-        model_path = f"models/model_finetuned_final.pth"
+        model_path = args.model_path
 
     num_epochs = args.epochs
 
     #finetune_model(model, train_loader, val_loader, out_path=model_path, epochs=num_epochs)
 
     # Reload the architecture
-    model = torch.hub.load("intel-isl/MiDaS", "DPT_Large")
+
+    if args.uq:
+        model = MiDaS_UQ(backbone="vitl16_384")
+        state_dict = torch.load(model_path, map_location=device)
+        model.load_state_dict(state_dict, strict=False)
+    else:
+        model = torch.hub.load("intel-isl/MiDaS", "DPT_Large")
+        model.load_state_dict(torch.load(model_path, map_location=device))
     model.to(device)
     # Load the fine-tuned weights
     model.load_state_dict(torch.load(model_path, map_location=device))
@@ -348,8 +398,8 @@ def main(args):
     evaluate_model(model, val_loader, num_epochs)
 
     print("✅ Predict with fine-tuned MiDaS model.")
-    visualize_prediction_with_ground_truth(model, val_loader, num_images=10)
-    visualize_prediction_without_ground_truth(model, test_loader, num_images=10)
+    #visualize_prediction_with_ground_truth(model, val_loader, num_images=10)
+    #visualize_prediction_without_ground_truth(model, test_loader, num_images=10)
     #predict_model(model, test_loader, test_depth_folder)
     print("Finished")
 
@@ -358,6 +408,7 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Fine-tune MiDaS model for indoor depth estimation.")
+    parser.add_argument("--model-path", type=str, default=f"models/model_finetuned_final.pth", help="Path to model.")
     parser.add_argument("--category", type=str, help="Category (e.g., kitchen, living_room, etc.)")
     parser.add_argument("--train-size", type=int, default=10000, help="Subset size of training data")
     parser.add_argument("--val-size", type=int, default=100, help="Subset size of validaton data")
@@ -365,6 +416,7 @@ if __name__ == "__main__":
     parser.add_argument("--train-batch-size", type=int, default=3)
     parser.add_argument("--val-batch-size", type=int, default=3)
     parser.add_argument("--test-batch-size", type=int, default=3)
+    parser.add_argument("--uq", type=bool, default=True)
     args = parser.parse_args()
 
     main(args)
