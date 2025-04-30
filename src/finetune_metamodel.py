@@ -34,6 +34,7 @@ class ExpertTrainDataset(Dataset):
         image_file_name, depth_file_name = self.image_depth_file_pairs[idx]
         image_path = os.path.join(self.image_dir, image_file_name)
         depth_path = os.path.join(self.depth_dir, depth_file_name)
+
         image = cv2.imread(image_path)
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         depth = np.load(depth_path)
@@ -44,6 +45,11 @@ class ExpertTrainDataset(Dataset):
 
         base_model_prediction_path = os.path.join(self.base_predictions_path, depth_file_name)
         base_pred_depth = torch.from_numpy(np.load(base_model_prediction_path)).float()
+        
+        uncertainty_path = os.path.join(self.base_predictions_path, depth_file_name.replace("depth", "uncertainty"))
+        uncertainty = np.load(uncertainty_path)
+        uncertainty = (uncertainty - uncertainty.min()) / (uncertainty.max() - uncertainty.min())
+
         predictions.append(base_pred_depth)
 
         for category in self.categories:
@@ -52,7 +58,7 @@ class ExpertTrainDataset(Dataset):
             pred_depth = torch.from_numpy(np.load(pred_file)).float()
             predictions.append(pred_depth)
 
-        return image, depth, image_file_name, predictions
+        return image, depth, predictions, uncertainty
     
 
 class ExpertTestDataset(Dataset):
@@ -77,6 +83,11 @@ class ExpertTestDataset(Dataset):
 
         base_model_prediction_path = os.path.join(self.base_predictions_path, depth_file_name)
         base_pred_depth = torch.from_numpy(np.load(base_model_prediction_path)).unsqueeze(0).float()
+
+        uncertainty_path = os.path.join(self.base_predictions_path, depth_file_name.replace("depth", "uncertainty"))
+        uncertainty = np.load(uncertainty_path)
+        uncertainty = (uncertainty - uncertainty.min()) / (uncertainty.max() - uncertainty.min())
+
         predictions.append(base_pred_depth)
 
         for category in self.categories:
@@ -84,7 +95,7 @@ class ExpertTestDataset(Dataset):
             pred_file = os.path.join(expert_prediction_dir, depth_file_name)
             pred_depth = torch.from_numpy(np.load(pred_file)).unsqueeze(0).float()
             predictions.append(pred_depth)
-        return image, depth_file_name, image_file_name, predictions
+        return image, depth_file_name, predictions, uncertainty
     
     
 
@@ -195,14 +206,14 @@ def train_metamodel(model, train_dataloader, val_dataloader, num_epochs=10, lr=1
     model.train()
     for epoch in range(1, num_epochs + 1):
         running_loss = 0.0
-        start_time = datetime.now()
-        print(f"\n🕒 [{start_time.strftime('%Y-%m-%d %H:%M:%S')}] Starting Epoch {epoch}/{num_epochs}")
+        time = datetime.now()
+        print(f"\n🕒 [{time.strftime('%Y-%m-%d %H:%M:%S')}] Epoch {epoch}/{num_epochs}")
 
         # 🏄‍♂️ Wrap your dataloader with tqdm
         train_loader_tqdm = tqdm(train_dataloader, desc=f"Epoch {epoch}/{num_epochs}", leave=True)
 
         for batch in train_loader_tqdm:
-            images, depths, image_names, predictions = batch
+            images, depths, predictions, uncertainties = batch
 
             images = images.cuda().permute(0, 3, 1, 2)  # (B, C, H, W)
             depths = depths.cuda()  # (B, 1, H, W)
@@ -230,10 +241,7 @@ def train_metamodel(model, train_dataloader, val_dataloader, num_epochs=10, lr=1
             # ✏️ Update tqdm with current average loss
             train_loader_tqdm.set_postfix({'loss': running_loss / (train_loader_tqdm.n + 1e-8)})
 
-        end_time = datetime.now()
-        epoch_duration = end_time - start_time
         print(f"✅ Epoch [{epoch}/{num_epochs}] finished. Loss: {running_loss/len(train_dataloader):.4f}")
-        print(f"🕒 Finished at {end_time.strftime('%Y-%m-%d %H:%M:%S')} (Duration: {str(epoch_duration)})")
         evaluate_metamodel(model, val_dataloader, epoch)
 
     if save_model:
@@ -247,7 +255,7 @@ def evaluate_metamodel(model, val_dataloader, epoch, visualize=True):
     count = 0
     with torch.no_grad():
         for batch in val_dataloader:
-            images, depths, image_names, predictions = batch
+            images, depths, predictions, uncertainties = batch
             images = images.cuda().permute(0, 3, 1, 2)  # (B, C, H, W)
             depths = depths.cuda()  # (B, 1, H, W)
 
@@ -404,7 +412,7 @@ def main(args):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Fine-tune MiDaS model for indoor depth estimation by category.")
+    parser = argparse.ArgumentParser(description="Train metamodel to predict a pixel-wise linear combination of pixel from base and expert models")
     parser.add_argument("--train-list", type=str, required=True, help="Path to train list") # category_lists/bathroom_train_list.txt
     parser.add_argument("--val-list", type=str, required=True, help="Path to val list") # category_lists/bathroom_val_list.txt
     parser.add_argument("--batch-size", type=int, default=4)

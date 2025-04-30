@@ -10,6 +10,7 @@ import matplotlib.pyplot as plt
 import torchvision.transforms.functional as TF
 import argparse
 import imageio.v2 as imageio
+from model import MiDaSUQ
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 image_size = [426, 560]
@@ -53,30 +54,60 @@ def load_image_depth_pairs(file_path):
     return pairs
 
 
+def predict_base_model(model_path, train_loader, val_loader, out_dir, eps=1e-8):
+    # Reload the architecture
+    model = MiDaSUQ(backbone="vitl16_384")
+    model.to(device)
+    # Load the fine-tuned weights
+    model.load_state_dict(torch.load(model_path, map_location=device), strict=False)
+    model.eval()
+    print(f"✅ Loaded fine-tuned MiDaS base model.")
+    with torch.no_grad():
+        for loader in [train_loader, val_loader]:
+            for images, image_file_names in loader:
+                images = images.to(device)
+                pred_depths, pred_logvars = model(images)
+                pred_depths_resized = torch.nn.functional.interpolate(
+                    pred_depths.unsqueeze(1), size=image_size, mode="bicubic", align_corners=False
+                )
+                
+                pred_logvars_resized = torch.nn.functional.interpolate(
+                    pred_logvars.unsqueeze(1), size=image_size, mode="bicubic", align_corners=False
+                )
+                pred_depths_resized = pred_depths_resized.clamp(min=eps) # for numerical stability for RMSE to avoid nan values due to log(0)
+
+                for pred, file_name in zip(pred_depths_resized, image_file_names):
+                    storage_path = os.path.join(out_dir, f"{file_name[:-8]}_depth")
+                    np.save(storage_path, pred.cpu())
+
+                for pred, file_name in zip(pred_logvars_resized, image_file_names):
+                    storage_path = os.path.join(out_dir, f"{file_name[:-8]}_uncertainty")
+                    np.save(storage_path, pred.cpu())
 
 
-def predict_ensemble(models, categories, loader, out_dir, eps=1e-8):
-    for model, category in zip(models, categories):
+def predict_ensemble(model_paths, categories, train_loader, val_loader, out_dir, eps=1e-8):
+    for model_path, category in zip(model_paths, categories):
         # Reload the architecture
         model = torch.hub.load("intel-isl/MiDaS", "DPT_Large")
         model.to(device)
         # Load the fine-tuned weights
-        model_path = f"models/model_{category}_finetuned.pth"
         model.load_state_dict(torch.load(model_path, map_location=device))
         model.eval()
-        print(f"✅ Loaded fine-tuned MiDaS model for category {category}.")
+
+        print(f"✅ Loaded fine-tuned MiDaS model for {category}.")
         out_path = os.path.join(out_dir, category)
         with torch.no_grad():
-            for images, image_file_names in loader:
-                images = images.to(device)
-                preds = model(images)
-                preds_resized = torch.nn.functional.interpolate(
-                    preds.unsqueeze(1), size=image_size, mode="bicubic", align_corners=False
-                )
-                preds_resized = preds_resized.clamp(min=eps) # for numerical stability for RMSE to avoid nan values due to log(0)
-                for pred, file_name in zip(preds_resized, image_file_names):
-                    storage_path = os.path.join(out_path, f"{file_name[:-8]}_depth")
-                    np.save(storage_path, pred.cpu())
+            for loader in [train_loader, val_loader]:
+                for images, image_file_names in loader:
+                    images = images.to(device)
+                    preds = model(images)
+                    preds_resized = torch.nn.functional.interpolate(
+                        preds.unsqueeze(1), size=image_size, mode="bicubic", align_corners=False
+                    )
+                    preds_resized = preds_resized.clamp(min=eps) # for numerical stability for RMSE to avoid nan values due to log(0)
+                    for pred, file_name in zip(preds_resized, image_file_names):
+                        storage_path = os.path.join(out_path, f"{file_name[:-8]}_depth")
+                        np.save(storage_path, pred.cpu())
 
 
 def load_predictions(categories, out_dir, visualize=False):
@@ -193,32 +224,49 @@ def visualize_depth_map(file_name, prediction):
 
 
 
-def main(args):
+def main(config):
     # Load transforms
     transform = torch.hub.load("intel-isl/MiDaS", "transforms").dpt_transform
 
     root = "src/data"
     cluster_root = "src/data" # "/cluster/courses/cil/monocular_depth/data/"
+    predictions_root = os.path.join(root, "predictions")
 
     train_image_folder = os.path.join(cluster_root, "train")
     test_image_folder = os.path.join(cluster_root, "test")
 
-    categories = ["kitchen", "bathroom", "dorm_room", "living_room", "home_office"][:1]
+    os.makedirs(predictions_root, exist_ok=True)
+    os.makedirs(os.path.join(predictions_root, "base_model"), exist_ok=True)
+    os.makedirs(os.path.join(predictions_root, "expert_models"), exist_ok=True)
 
-    expert_models = [f"models/model_{category}_finetuned.pth" for category in categories]
+    categories = ["kitchen", "bathroom", "dorm_room", "living_room", "home_office"]
 
-    image_depth_pairs = load_image_depth_pairs(os.path.join(root, args.sample_list))[:3]
+    for category in categories:
+        os.makedirs(f"{predictions_root}/expert_models/{category}", exist_ok=True)
+
+    train_image_depth_pairs = load_image_depth_pairs(os.path.join(root, config.train_sample_list))
+    val_image_depth_pairs = load_image_depth_pairs(os.path.join(root, config.val_sample_list))
 
 
     # Dataset and Dataloader
-    dataset = ImageDepthDataset(train_image_folder, transform, image_depth_pairs)
-    dataloader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True)
-    out_dir = "src/data/predictions/expert_models"
+    train_dataset = ImageDepthDataset(train_image_folder, transform, train_image_depth_pairs)
+    val_dataset = ImageDepthDataset(train_image_folder, transform, val_image_depth_pairs)
+    train_dataloader = DataLoader(train_dataset, batch_size=config.batch_size, shuffle=True)
+    val_dataloader = DataLoader(val_dataset, batch_size=config.batch_size, shuffle=True)
 
-    print("✅ Predict with fine-tuned MiDaS model ensemble.")
-    predict_ensemble_16_bit(expert_models, categories, dataloader, out_dir)
-    print("✅ Load predictions from  MiDaS model ensemble.")
-    load_predictions_16_bit(categories, out_dir)
+    out_dir_base = os.path.join(predictions_root, "base_model")
+    out_dir_experts = os.path.join(predictions_root, "expert_models")
+
+    
+    base_model = config.base_model_path
+    expert_models = [f"models/model_{category}_finetuned.pth" for category in categories]
+
+    print("✅ Predict with base uncertainty model on training/validation data")
+    predict_base_model(base_model, train_dataloader, val_dataloader, out_dir_base)
+
+    print("✅ Predict with expert model ensemble on training/validation data.")
+    predict_ensemble(expert_models, categories, train_dataloader, val_dataloader, out_dir_experts)
+
     print("Finished")
 
 
@@ -226,8 +274,10 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Fine-tune MiDaS model for indoor depth estimation by category.")
-    parser.add_argument("--sample-list", type=str, required=True, help="Path to sample list")
-    parser.add_argument("--batch-size", type=int, default=3)
-    args = parser.parse_args()
+    parser.add_argument("--base-model-path", type=str, required=True)
+    parser.add_argument("--train-sample-list", type=str, required=True, help="Path to sample train list")
+    parser.add_argument("--val-sample-list", type=str, required=True, help="Path to sample val list")
+    parser.add_argument("--batch-size", type=int, default=4)
+    config = parser.parse_args()
 
-    main(args)
+    main(config)
