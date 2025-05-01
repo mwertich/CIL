@@ -98,7 +98,7 @@ def finetune_model(model, train_loader, val_loader, out_path, epochs=5, lr=1e-5,
         print(f"✅ Fine-tuned model saved to {out_path}")
 
 
-def predict_model(model, test_loader, pred_dir, eps = 1e-8):
+def predict_model(model, test_loader, eps = 1e-8):
     model.eval()
     with torch.no_grad():
         for images, depth_file_names in test_loader:
@@ -112,8 +112,7 @@ def predict_model(model, test_loader, pred_dir, eps = 1e-8):
             )
             preds_resized = preds_resized.clamp(min=eps) # for numerical stability for RMSE to avoid nan values due to log(0)
             for pred, depth_file_name in zip(preds_resized, depth_file_names):
-                out_path = os.path.join(pred_dir, depth_file_name)
-                np.save(out_path, pred.cpu())
+                np.save(depth_file_name, pred.cpu())
 
 
 
@@ -214,7 +213,7 @@ def main(config):
     test_loader  = get_dataloader(image_size=image_size, mode='test', set_size=None, batch_size=config.batch_size, train_list=train_list, val_list=val_list, test_list=test_list, sharpen=False) #650/650
 
     if not config.category and config.pretrained:
-        model_path = config.model_path
+        model_path = config.pretrained
         print(f"Load model from {model_path}")
     elif config.category:
         model_path = f"models/model_{category}_finetuned.pth"
@@ -222,25 +221,27 @@ def main(config):
     # Reload the architecture
     if config.uq:
         model = MiDaSUQ(backbone="vitl16_384")
+        model.load_state_dict(torch.load(model_path, map_location=device), strict=False)
     else:
         model = torch.hub.load("intel-isl/MiDaS", "DPT_Large")
+        if config.pretrained:
+            # Load the fine-tuned weight
+            model.load_state_dict(torch.load(model_path, map_location=device), strict=False)
     
-    # Load the fine-tuned weight
-    if config.model_path:
-        model.load_state_dict(torch.load(model_path, map_location=device), strict=False)
+
     model.to(device)
     print("✅ Loaded fine-tuned MiDaS model.")
 
-    finetune_model(model, train_loader, val_loader, out_path=model_path, epochs=config.epochs, save_model=True)
+    #finetune_model(model, train_loader, val_loader, out_path=model_path, epochs=config.epochs, save_model=True)
 
     model.eval()
     print("✅ Evaluate fine-tuned MiDaS model.")
     evaluate_model(model, val_loader, config.epochs)
 
     print("✅ Predict with fine-tuned MiDaS model.")
-    visualize_prediction_with_ground_truth(model, val_loader, num_images=10)
-    visualize_prediction_without_ground_truth(model, test_loader, num_images=10)
-    #predict_model(model, test_loader)
+    #visualize_prediction_with_ground_truth(model, val_loader, num_images=10)
+    #visualize_prediction_without_ground_truth(model, test_loader, num_images=10)
+    predict_model(model, test_loader)
     print("Finished")
 
 
@@ -256,5 +257,8 @@ if __name__ == "__main__":
     args.add_argument("--batch-size", type=int, default=3,help="Batch size")
     args.add_argument("--uq", type=bool, default=False)
     config = args.parse_args()
+
+    run_id = datetime.now().strftime("%y%m%d_%H%M%S")
+    print('---------------- Run id:', run_id, '----------------')
 
     main(config)

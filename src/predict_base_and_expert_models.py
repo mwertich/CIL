@@ -230,7 +230,7 @@ def main(config):
 
     root = "src/data"
     cluster_root = "src/data" # "/cluster/courses/cil/monocular_depth/data/"
-    predictions_root = os.path.join(root, "predictions")
+    predictions_root = os.path.join(root, "predictions_temp")
 
     train_image_folder = os.path.join(cluster_root, "train")
     test_image_folder = os.path.join(cluster_root, "test")

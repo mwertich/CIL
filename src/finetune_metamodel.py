@@ -98,6 +98,51 @@ class ExpertTestDataset(Dataset):
         return image, depth_file_name, predictions, uncertainty
     
     
+# ===== Simple UNet =====
+class SimpleUNet(nn.Module):
+    def __init__(self, num_experts):
+        super(SimpleUNet, self).__init__()
+        self.enc1 = nn.Sequential(nn.Conv2d(3, 64, 3, padding=1), nn.ReLU(), nn.Conv2d(64, 64, 3, padding=1), nn.ReLU())
+        self.pool1 = nn.MaxPool2d(2)
+        self.enc2 = nn.Sequential(nn.Conv2d(64, 128, 3, padding=1), nn.ReLU(), nn.Conv2d(128, 128, 3, padding=1), nn.ReLU())
+        self.pool2 = nn.MaxPool2d(2)
+
+        self.bottleneck = nn.Sequential(nn.Conv2d(128, 256, 3, padding=1), nn.ReLU(), nn.Conv2d(256, 256, 3, padding=1), nn.ReLU())
+
+        self.up2 = nn.ConvTranspose2d(256, 128, 2, stride=2)
+        self.dec2 = nn.Sequential(nn.Conv2d(256, 128, 3, padding=1), nn.ReLU(), nn.Conv2d(128, 128, 3, padding=1), nn.ReLU())
+
+        self.up1 = nn.ConvTranspose2d(128, 64, 2, stride=2)
+        self.dec1 = nn.Sequential(nn.Conv2d(128, 64, 3, padding=1), nn.ReLU(), nn.Conv2d(64, 64, 3, padding=1), nn.ReLU())
+
+        self.final = nn.Conv2d(64, num_experts, 1)
+
+
+    def center_crop(self, tensor, target_tensor):
+        _, _, h, w = target_tensor.shape
+        tensor = torchvision.transforms.functional.center_crop(tensor, [h, w])
+        return tensor
+
+    def forward(self, x):
+        e1 = self.enc1(x)
+        p1 = self.pool1(e1)
+        e2 = self.enc2(p1)
+        p2 = self.pool2(e2)
+        
+        b = self.bottleneck(p2)
+        
+        u2 = self.up2(b)
+        e2 = self.center_crop(e2, u2)
+        u2 = torch.cat([u2, e2], dim=1)
+        d2 = self.dec2(u2)
+
+        u1 = self.up1(d2)
+        e1 = self.center_crop(e1, u1)
+        u1 = torch.cat([u1, e1], dim=1)
+        d1 = self.dec1(u1)
+
+        out = self.final(d1)
+        return out
 
 
 def scale_invariant_rmse(predicted, ground_truth):
@@ -146,55 +191,6 @@ def load_image_depth_pairs(file_path):
                 image_file, depth_file = parts
                 pairs.append((image_file, depth_file))
     return pairs
-
-
-
-
-# ===== Simple UNet =====
-class SimpleUNet(nn.Module):
-    def __init__(self, num_experts):
-        super(SimpleUNet, self).__init__()
-        self.enc1 = nn.Sequential(nn.Conv2d(3, 64, 3, padding=1), nn.ReLU(), nn.Conv2d(64, 64, 3, padding=1), nn.ReLU())
-        self.pool1 = nn.MaxPool2d(2)
-        self.enc2 = nn.Sequential(nn.Conv2d(64, 128, 3, padding=1), nn.ReLU(), nn.Conv2d(128, 128, 3, padding=1), nn.ReLU())
-        self.pool2 = nn.MaxPool2d(2)
-
-        self.bottleneck = nn.Sequential(nn.Conv2d(128, 256, 3, padding=1), nn.ReLU(), nn.Conv2d(256, 256, 3, padding=1), nn.ReLU())
-
-        self.up2 = nn.ConvTranspose2d(256, 128, 2, stride=2)
-        self.dec2 = nn.Sequential(nn.Conv2d(256, 128, 3, padding=1), nn.ReLU(), nn.Conv2d(128, 128, 3, padding=1), nn.ReLU())
-
-        self.up1 = nn.ConvTranspose2d(128, 64, 2, stride=2)
-        self.dec1 = nn.Sequential(nn.Conv2d(128, 64, 3, padding=1), nn.ReLU(), nn.Conv2d(64, 64, 3, padding=1), nn.ReLU())
-
-        self.final = nn.Conv2d(64, num_experts, 1)
-
-
-    def center_crop(self, tensor, target_tensor):
-        _, _, h, w = target_tensor.shape
-        tensor = torchvision.transforms.functional.center_crop(tensor, [h, w])
-        return tensor
-
-    def forward(self, x):
-        e1 = self.enc1(x)
-        p1 = self.pool1(e1)
-        e2 = self.enc2(p1)
-        p2 = self.pool2(e2)
-        
-        b = self.bottleneck(p2)
-        
-        u2 = self.up2(b)
-        e2 = self.center_crop(e2, u2)
-        u2 = torch.cat([u2, e2], dim=1)
-        d2 = self.dec2(u2)
-
-        u1 = self.up1(d2)
-        e1 = self.center_crop(e1, u1)
-        u1 = torch.cat([u1, e1], dim=1)
-        d1 = self.dec1(u1)
-
-        out = self.final(d1)
-        return out
 
 
 def train_metamodel(model, train_dataloader, val_dataloader, num_epochs=10, lr=1e-4, num_experts=6, alpha=1, beta=0.01, save_model=True):
@@ -386,8 +382,8 @@ def main(args):
 
     categories = ["kitchen", "dorm_room", "living_room", "home_office"] # ["kitchen", "bathroom", "dorm_room", "living_room", "home_office"]
     num_experts = len(categories) + 1
-    base_predictions_path = os.path.join(root, "predictions/base_model")
-    expert_predictions_path = os.path.join(root, "predictions/expert_models")
+    base_predictions_path = os.path.join(root, "predictions_temp/base_model")
+    expert_predictions_path = os.path.join(root, "predictions_temp/expert_models")
 
     train_image_depth_pairs = load_image_depth_pairs(os.path.join(root, args.train_list))
     val_image_depth_pairs = load_image_depth_pairs(os.path.join(root, args.val_list))
@@ -423,5 +419,8 @@ if __name__ == "__main__":
     parser.add_argument("--batch-size", type=int, default=4)
     parser.add_argument("--num-epochs", type=int, default=5)
     args = parser.parse_args()
+
+    run_id = datetime.now().strftime("%y%m%d_%H%M%S")
+    print('---------------- Run id:', run_id, '----------------')
 
     main(args)
