@@ -23,7 +23,7 @@ from datetime import datetime
 
 
 # Main training function
-def finetune_model_uq(model, train_loader, val_loader, out_path, epochs=5, lr=1e-5):
+def finetune_model(model, train_loader, val_loader, out_path, epochs=5, lr=1e-5):
 
     model.to(device)
     model.train()  # set to train mode
@@ -32,6 +32,9 @@ def finetune_model_uq(model, train_loader, val_loader, out_path, epochs=5, lr=1e
     # criterion = nn.L1Loss()  # or nn.MSELoss()
     criterion = DepthUncertaintyLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+
+    #evaluate initial model
+    evaluate_model(model, val_loader, 0, device)
 
     # Training loop
     for epoch in range(1, epochs + 1):
@@ -113,7 +116,7 @@ if __name__ == "__main__":
     test_loader  = get_dataloader(image_size=image_size, mode='test', set_size=None, batch_size=config.batch_size)
 
     # num_epochs = 1
-    finetune_model_uq(model, train_loader, val_loader, out_path=f"models/model_{run_id}_finetuned.pth", epochs=config.epochs)
+    finetune_model(model, train_loader, val_loader, out_path=f"models/model_{run_id}_finetuned.pth", epochs=config.epochs)
 
     # Reload the architecture
     # model = torch.hub.load("intel-isl/MiDaS", "DPT_Large")

@@ -203,6 +203,10 @@ def train_metamodel(model, train_dataloader, val_dataloader, num_epochs=10, lr=1
     criterion = nn.MSELoss()
     ce_loss_fn = nn.CrossEntropyLoss()
 
+
+    #evaluate initial model
+    evaluate_metamodel(model, val_dataloader, 0)
+
     model.train()
     for epoch in range(1, num_epochs + 1):
         running_loss = 0.0
@@ -248,6 +252,7 @@ def train_metamodel(model, train_dataloader, val_dataloader, num_epochs=10, lr=1
         torch.save(model.state_dict(), f"models/metamodel_final.pth")
         print(f"💾 Saved model checkpoint at models/metamodel_final.pth")
     return model
+
 
 def evaluate_metamodel(model, val_dataloader, epoch, visualize=True):
     model.eval()

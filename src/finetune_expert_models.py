@@ -55,6 +55,9 @@ def finetune_model(model, train_loader, val_loader, out_path, epochs=5, lr=1e-5,
     criterion = nn.L1Loss()  # or nn.MSELoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 
+    #evaluate initial model
+    evaluate_model(model, val_loader, 0)
+
     # Training loop
     for epoch in range(1, epochs + 1):
         running_loss = 0.0
@@ -206,13 +209,11 @@ def main(config):
         val_list = f"val_list.txt"
         test_list = f"test_list.txt"
 
-    train_loader = get_dataloader(image_size=image_size, mode='train', set_size=config.train_size, batch_size=config.batch_size, train_list=train_list, val_list=val_list, test_list=test_list, sharpen=True) #19176/23971
-    val_loader   = get_dataloader(image_size=image_size, mode='val', set_size=config.val_size, batch_size=config.batch_size, train_list=train_list, val_list=val_list, test_list=test_list, sharpen=True) #4795/23971
-    test_loader  = get_dataloader(image_size=image_size, mode='test', set_size=None, batch_size=config.batch_size, train_list=train_list, val_list=val_list, test_list=test_list, sharpen=True) #650/650
+    train_loader = get_dataloader(image_size=image_size, mode='train', set_size=config.train_size, batch_size=config.batch_size, train_list=train_list, val_list=val_list, test_list=test_list, sharpen=False) #19176/23971
+    val_loader   = get_dataloader(image_size=image_size, mode='val', set_size=config.val_size, batch_size=config.batch_size, train_list=train_list, val_list=val_list, test_list=test_list, sharpen=False) #4795/23971
+    test_loader  = get_dataloader(image_size=image_size, mode='test', set_size=None, batch_size=config.batch_size, train_list=train_list, val_list=val_list, test_list=test_list, sharpen=False) #650/650
 
-    print(len(train_loader), len(val_loader), len(test_loader))
-
-    if not config.category and config.model_path:
+    if not config.category and config.pretrained:
         model_path = config.model_path
         print(f"Load model from {model_path}")
     elif config.category:
@@ -247,10 +248,10 @@ def main(config):
 
 if __name__ == "__main__":
     args = argparse.ArgumentParser(description="Fine-tune MiDaS model for indoor depth estimation.")
-    args.add_argument("--model-path", type=str, help="Path to model. If left out, a new model is trained")
+    args.add_argument("--pretrained", type=str, default=None, help="Path to model. If left out, a new model is trained")
     args.add_argument("--category", type=str, help="Category (e.g., kitchen, living_room, etc.)")
-    args.add_argument("--train-size", type=int, help="Subset size of training data")
-    args.add_argument("--val-size", type=int, help="Subset size of validaton data")
+    args.add_argument("--train-size", type=int, default=None, help="Subset size of training data")
+    args.add_argument("--val-size", type=int, default=None, help="Subset size of validaton data")
     args.add_argument("--epochs", type=int, default=10, help="Number of training epochs")
     args.add_argument("--batch-size", type=int, default=3,help="Batch size")
     args.add_argument("--uq", type=bool, default=False)
