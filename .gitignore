@@ -15,7 +15,13 @@ downloads/
 eggs/
 .eggs/
 lib/
-lib64/
+lib64
+models/
+share/
+bin/
+depth_maps/
+etc/
+include/
 parts/
 sdist/
 var/
@@ -24,6 +30,10 @@ share/python-wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+output*.txt
+*.cfg
+data/
+
 MANIFEST
 
 # PyInstaller
