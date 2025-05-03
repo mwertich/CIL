@@ -232,7 +232,7 @@ def main(config):
     model.to(device)
     print("✅ Loaded fine-tuned MiDaS model.")
 
-    #finetune_model(model, train_loader, val_loader, out_path=model_path, epochs=config.epochs, save_model=True)
+    finetune_model(model, train_loader, val_loader, out_path=model_path, epochs=config.epochs, save_model=True)
 
     model.eval()
     print("✅ Evaluate fine-tuned MiDaS model.")
