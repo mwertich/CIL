@@ -21,11 +21,23 @@ share/
 bin/
 depth_maps/
 etc/
-include/
+include
+share/
+bin/
+*.cfg
+*.csv
 parts/
 sdist/
 var/
+etc/
+include/
+models/
+src/data/test
+src/data/train
+src/data/predictions
 wheels/
+depth_maps/
+output*.txt
 share/python-wheels/
 *.egg-info/
 .installed.cfg
@@ -182,3 +194,6 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+
+src/data/predictions
+src/data/prediction_temp
