@@ -431,7 +431,7 @@ def main(args):
     #model.load_state_dict(torch.load(model_path))
     model = model.cuda()  # move to GPU after loading 
     model.eval()
-    evaluate_metamodel(model, val_dataloader, 5)
+    evaluate_metamodel(model, val_dataloader, 5, categories)
     print("Finished")
 
 
