@@ -311,7 +311,8 @@ def visualize_batch(images, pred_depths, depths, probs_batch, best_expert_indice
     # Create save directory if needed
     if save_path and not os.path.exists(save_path):
         os.makedirs(save_path)
-
+    
+    image_count = 0
     for image, pred_depth, depth, probs, best_expert_indices, uncertainty in zip(images, pred_depths, depths, probs_batch, best_expert_indices_batch, uncertainties):
         image = image.permute(1, 2, 0).cpu().numpy()  # (H, W, 3)
         image = np.clip(image, 0, 1)
@@ -384,10 +385,11 @@ def visualize_batch(images, pred_depths, depths, probs_batch, best_expert_indice
             ax2[i].axis('off')
 
         plt.tight_layout()
-
+        
         if save_path:
-            plt.savefig(f"{save_path}/sample{i}.png")
-            print(f"✅ Saved visualization to {save_path}/sample{i}.png")
+            plt.savefig(f"{save_path}/sample{image_count}.png")
+            print(f"✅ Saved visualization to {save_path}/sample{image_count}.png")
+            image_count+=1
         else:
             plt.show()
 
