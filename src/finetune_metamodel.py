@@ -193,15 +193,15 @@ def load_image_depth_pairs(file_path):
     return pairs
 
 
-def train_metamodel(model, train_dataloader, val_dataloader, num_epochs=10, lr=1e-4, num_experts=6, alpha=1, beta=0.01, save_model=True):
+def train_metamodel(model, train_dataloader, val_dataloader, categories, num_epochs=10, lr=1e-4, alpha=0.1, beta=0.001, save_model=True):
     model = model.cuda()
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
-    criterion = nn.MSELoss()
+    mse_loss = nn.MSELoss()
     ce_loss_fn = nn.CrossEntropyLoss()
 
 
     #evaluate initial model
-    evaluate_metamodel(model, val_dataloader, 0)
+    evaluate_metamodel(model, val_dataloader, 0, categories)
 
     model.train()
     for epoch in range(1, num_epochs + 1):
@@ -230,7 +230,7 @@ def train_metamodel(model, train_dataloader, val_dataloader, num_epochs=10, lr=1
             errors = torch.abs(experts - depths.expand_as(experts))  # (B, num_experts, H, W)
             best_expert_indices = torch.argmin(errors, dim=1)  # (B, H, W)
 
-            loss = ce_loss_fn(logits, best_expert_indices) #+ beta * entropy_loss(probs)  + criterion(pred_depth, depths)
+            loss =  mse_loss(pred_depth, depths) + alpha * ce_loss_fn(logits, best_expert_indices) + beta * entropy_loss(probs)
 
             optimizer.zero_grad()
             loss.backward()
@@ -242,7 +242,7 @@ def train_metamodel(model, train_dataloader, val_dataloader, num_epochs=10, lr=1
             train_loader_tqdm.set_postfix({'loss': running_loss / (train_loader_tqdm.n + 1e-8)})
 
         print(f"✅ Epoch [{epoch}/{num_epochs}] finished. Loss: {running_loss/len(train_dataloader):.4f}")
-        evaluate_metamodel(model, val_dataloader, epoch)
+        evaluate_metamodel(model, val_dataloader, epoch, categories)
 
     if save_model:
         torch.save(model.state_dict(), f"models/metamodel_final.pth")
@@ -250,7 +250,7 @@ def train_metamodel(model, train_dataloader, val_dataloader, num_epochs=10, lr=1
     return model
 
 
-def evaluate_metamodel(model, val_dataloader, epoch, visualize=True):
+def evaluate_metamodel(model, val_dataloader, epoch, categories, visualize=True):
     model.eval()
     total_rmse = 0.0
     count = 0
@@ -285,14 +285,14 @@ def evaluate_metamodel(model, val_dataloader, epoch, visualize=True):
             best_expert_indices = torch.argmin(errors, dim=1)  # (B, H, W)
 
             if visualize and count == 0:
-                visualize_batch(images, pred_depths, depths, logits, best_expert_indices)
+                visualize_batch(images, pred_depths, depths, probs, best_expert_indices, uncertainties, categories)
                 count += 1
 
     avg_rmse = total_rmse / len(val_dataloader)
     print(f"✅ Scale-Invariant RMSE after epoch {epoch}: {avg_rmse:.4f}")
 
 
-def visualize_batch(images, pred_depths, depths, logits, best_expert_indices, save_path="meta_maps"):
+def visualize_batch(images, pred_depths, depths, probs_batch, best_expert_indices_batch, uncertainties, categories, save_path="meta_maps"):
     """
     Visualize a batch of examples.
 
@@ -300,29 +300,37 @@ def visualize_batch(images, pred_depths, depths, logits, best_expert_indices, sa
         images (Tensor): (B, 3, H, W)
         pred_depths (Tensor): (B, 1, H, W)
         depths (Tensor): (B, 1, H, W)
-        logits (Tensor): (B, num_experts, H, W)
+        probs (Tensor): (B, num_experts, H, W)
         best_expert_indices (Tensor): (B, H, W)
+        uncertainties (Tensor) (B, 1, H, W)
         save_path (str or None): If given, saves the figure instead of showing.
     """
     batch_size = images.shape[0]
-    num_experts = logits.shape[1]
+    num_models = probs_batch.shape[1]
 
     # Create save directory if needed
     if save_path and not os.path.exists(save_path):
         os.makedirs(save_path)
-
-    for i in range(batch_size):
-        image = images[i].permute(1, 2, 0).cpu().numpy()  # (H, W, 3)
+    
+    image_count = 0
+    for image, pred_depth, depth, probs, best_expert_indices, uncertainty in zip(images, pred_depths, depths, probs_batch, best_expert_indices_batch, uncertainties):
+        image = image.permute(1, 2, 0).cpu().numpy()  # (H, W, 3)
         image = np.clip(image, 0, 1)
 
-        pred_depth = pred_depths[i, 0].cpu().numpy()
-        depth_gt = depths[i, 0].cpu().numpy()
+        pred_depth = pred_depth[0].cpu().numpy()
+        depth_gt = depth[0].cpu().numpy()
+        uncertainty = depth[0].cpu().numpy()
 
         # Predicted expert map
-        expert_map = torch.argmax(logits[i], dim=0).cpu().numpy()  # (H, W)
+        expert_map = torch.argmax(probs, dim=0).cpu().numpy()  # (H, W)
+
+        probs_mean = torch.mean(probs, dim=0).cpu().numpy()
+        probs_var = torch.var(probs, dim=0).cpu().numpy()
 
         # Best expert map (oracle)
-        best_map = best_expert_indices[i].cpu().numpy()  # (H, W)
+        best_map = best_expert_indices.cpu().numpy()  # (H, W)
+
+        experts = ["base"] + categories 
 
         # Define a color map: one color per expert
         colors = np.array([
@@ -334,37 +342,54 @@ def visualize_batch(images, pred_depths, depths, logits, best_expert_indices, sa
             [0, 255, 255],    # Cyan
         ]) / 255.0  # normalize to [0,1]
 
+        colors = colors[:num_models]
+        num_colors = len(colors)
+
         expert_color_map = colors[expert_map]  # (H, W, 3)
         best_color_map = colors[best_map]      # (H, W, 3)
 
         # Plotting
-        fig, axs = plt.subplots(1, 5, figsize=(25, 5))  # ➡️ Now 5 plots
+        fig, (ax1, ax2) = plt.subplots(2, 6, figsize=(25, 10))  # ➡️ Now 11 plots
 
-        axs[0].imshow(image)
-        axs[0].set_title('Input Image')
-        axs[0].axis('off')
+        ax1[0].imshow(image)
+        ax1[0].set_title('Input Image')
 
-        axs[1].imshow(pred_depth, cmap='plasma')
-        axs[1].set_title('Predicted Depth')
-        axs[1].axis('off')
+        ax1[1].imshow(pred_depth, cmap='plasma')
+        ax1[1].set_title('Predicted Depth')
 
-        axs[2].imshow(depth_gt, cmap='plasma')
-        axs[2].set_title('Ground Truth Depth')
-        axs[2].axis('off')
+        ax1[2].imshow(depth_gt, cmap='plasma')
+        ax1[2].set_title('Ground Truth Depth')
 
-        axs[3].imshow(expert_color_map)
-        axs[3].set_title('Chosen Expert Map')
-        axs[3].axis('off')
+        ax1[3].imshow(expert_color_map)
+        ax1[3].set_title('Chosen Expert Map')
 
-        axs[4].imshow(best_color_map)
-        axs[4].set_title('Best Expert (Oracle) Map')
-        axs[4].axis('off')
+        ax1[4].imshow(best_color_map)
+        ax1[4].set_title('Best Expert (Oracle) Map')
+
+        ax1[5].imshow(uncertainty, cmap='viridis')
+        ax1[5].set_title('Uncertainty Map')
+
+        for i in range(6):
+            ax1[i].axis('off')
+
+        for i in range(num_models):
+            prob = probs[i].cpu().numpy()  # (H, W), values in [0, 1]
+            color = colors[i]              # (3,), RGB in [0, 1]
+            
+            # Expand prob to (H, W, 1) to broadcast with (3,) color
+            rgb_image = prob[..., np.newaxis] * color  # (H, W, 3)
+            
+            ax2[i].imshow(rgb_image)
+            ax2[i].set_title(f'Prob {experts[i]}')
+            ax2[i].text(0.5, -0.1, f'Max: {np.max(prob):.4f}, Min: {np.min(prob):.4f}, Std: {np.std(prob):.4f}', transform=ax2[i].transAxes,ha='center', va='top', fontsize=10)
+            ax2[i].axis('off')
 
         plt.tight_layout()
-
+        
         if save_path:
-            plt.savefig(f"{save_path}/sample{i}.png")
-            print(f"✅ Saved visualization to {save_path}/sample{i}.png")
+            plt.savefig(f"{save_path}/sample{image_count}.png")
+            print(f"✅ Saved visualization to {save_path}/sample{image_count}.png")
+            image_count+=1
         else:
             plt.show()
 
@@ -380,7 +405,7 @@ def main(args):
     train_depth_folder = os.path.join(cluster_root, "train")
     test_image_folder = os.path.join(cluster_root, "test")
 
-    categories = ["kitchen", "dorm_room", "living_room", "home_office"] # ["kitchen", "bathroom", "dorm_room", "living_room", "home_office"]
+    categories = ["kitchen", "bathroom", "dorm_room", "living_room", "home_office"]
     num_experts = len(categories) + 1
     base_predictions_path = os.path.join(root, "predictions_temp/base_model")
     expert_predictions_path = os.path.join(root, "predictions_temp/expert_models")
@@ -400,7 +425,7 @@ def main(args):
     model = SimpleUNet(num_experts=num_experts)
 
     print("✅ Train Metamodel")
-    train_metamodel(model, train_dataloader, val_dataloader, num_epochs=args.num_epochs)
+    train_metamodel(model, train_dataloader, val_dataloader, categories, num_epochs=args.num_epochs)
     print("Evaluate MetaModel")
     model_path = "models/metamodel_final.pth"
     #model.load_state_dict(torch.load(model_path))

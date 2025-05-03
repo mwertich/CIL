@@ -76,13 +76,13 @@ def predict_base_model(model_path, train_loader, val_loader, out_dir, eps=1e-8):
                 )
                 pred_depths_resized = pred_depths_resized.clamp(min=eps) # for numerical stability for RMSE to avoid nan values due to log(0)
 
-                for pred, file_name in zip(pred_depths_resized, image_file_names):
+                for pred_depth, file_name in zip(pred_depths_resized, image_file_names):
                     storage_path = os.path.join(out_dir, f"{file_name[:-8]}_depth")
-                    np.save(storage_path, pred.cpu())
+                    np.save(storage_path, pred_depth.cpu())
 
-                for pred, file_name in zip(pred_logvars_resized, image_file_names):
+                for pred_logvars, file_name in zip(pred_logvars_resized, image_file_names):
                     storage_path = os.path.join(out_dir, f"{file_name[:-8]}_uncertainty")
-                    np.save(storage_path, pred.cpu())
+                    np.save(storage_path, pred_logvars.cpu())
 
 
 def predict_ensemble(model_paths, categories, train_loader, val_loader, out_dir, eps=1e-8):
@@ -231,6 +231,7 @@ def main(config):
     root = "src/data"
     cluster_root = "src/data" # "/cluster/courses/cil/monocular_depth/data/"
     predictions_root = os.path.join(root, "predictions_temp")
+    predictions_root = "/work/scratch/<user>/predictions_temp"
 
     train_image_folder = os.path.join(cluster_root, "train")
     test_image_folder = os.path.join(cluster_root, "test")
