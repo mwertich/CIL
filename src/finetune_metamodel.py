@@ -85,7 +85,7 @@ class ExpertTestDataset(Dataset):
         base_pred_depth = torch.from_numpy(np.load(base_model_prediction_path)).unsqueeze(0).float()
 
         uncertainty_path = os.path.join(self.base_predictions_path, depth_file_name.replace("depth", "uncertainty"))
-        uncertainty = np.load(uncertainty_path)
+        uncertainty = torch.from_numpy(np.load(uncertainty_path)).unsqueeze(0).float()
         uncertainty = (uncertainty - uncertainty.min()) / (uncertainty.max() - uncertainty.min())
 
         predictions.append(base_pred_depth)
@@ -319,7 +319,7 @@ def visualize_batch(images, pred_depths, depths, probs_batch, best_expert_indice
 
         pred_depth = pred_depth[0].cpu().numpy()
         depth_gt = depth[0].cpu().numpy()
-        uncertainty = depth[0].cpu().numpy()
+        uncertainty = uncertainty[0].cpu().numpy()
 
         # Predicted expert map
         expert_map = torch.argmax(probs, dim=0).cpu().numpy()  # (H, W)
