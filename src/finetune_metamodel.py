@@ -124,7 +124,10 @@ class SimpleUNet(nn.Module):
         return tensor
 
     def forward(self, x):
-        e1 = self.enc1(x)
+        w_pad = (x.shape[-1] % 4) // 2
+        h_pad = (x.shape[-2] % 4) // 2
+        x_pad = F.pad(x, (w_pad, w_pad, h_pad, h_pad), mode='replicate')  # Pad to make it divisible by 4
+        e1 = self.enc1(x_pad)
         p1 = self.pool1(e1)
         e2 = self.enc2(p1)
         p2 = self.pool2(e2)
@@ -132,17 +135,15 @@ class SimpleUNet(nn.Module):
         b = self.bottleneck(p2)
         
         u2 = self.up2(b)
-        e2 = self.center_crop(e2, u2)
         u2 = torch.cat([u2, e2], dim=1)
         d2 = self.dec2(u2)
 
         u1 = self.up1(d2)
-        e1 = self.center_crop(e1, u1)
         u1 = torch.cat([u1, e1], dim=1)
         d1 = self.dec1(u1)
 
         out = self.final(d1)
-        return out
+        return self.center_crop(out, x)
 
 
 def scale_invariant_rmse(predicted, ground_truth):
@@ -200,7 +201,7 @@ def train_metamodel(model, train_dataloader, val_dataloader, categories, num_epo
     ce_loss_fn = nn.CrossEntropyLoss()
 
 
-    #evaluate initial model
+    # evaluate initial model
     evaluate_metamodel(model, val_dataloader, 0, categories)
 
     model.train()
@@ -221,12 +222,10 @@ def train_metamodel(model, train_dataloader, val_dataloader, categories, num_epo
             experts = torch.stack(predictions, dim=0).squeeze(2).permute(1, 0, 2, 3).cuda()
 
             logits = model(images)  # (B, num_experts, H, W)
-            logits = F.interpolate(logits, size=experts.shape[-2:], mode='bilinear', align_corners=False)
 
             probs = F.softmax(logits, dim=1)  # (B, num_experts, H, W)
             pred_depth = torch.sum(probs * experts, dim=1, keepdim=True)  # (B, 1, H, W)
 
-            
             errors = torch.abs(experts - depths.expand_as(experts))  # (B, num_experts, H, W)
             best_expert_indices = torch.argmin(errors, dim=1)  # (B, H, W)
 
@@ -261,10 +260,9 @@ def evaluate_metamodel(model, val_dataloader, epoch, categories, visualize=True)
             depths = depths.cuda()  # (B, 1, H, W)
 
             # Stack expert predictions: (B, num_experts, 1, H, W)
-            experts = torch.stack(predictions, dim=0).squeeze(2).permute(1, 0, 2, 3).cuda()
+            experts = torch.cat(predictions, dim=1).cuda()
 
             logits = model(images)  # (B, num_experts, H, W)
-            logits = F.interpolate(logits, size=experts.shape[-2:], mode='bilinear', align_corners=False)
             # Softmax over experts
             probs = F.softmax(logits, dim=1)  # (B, num_experts, H, W)
 
