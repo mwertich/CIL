@@ -198,15 +198,15 @@ def load_image_depth_pairs(file_path):
     return pairs
 
 
-def train_metamodel(model, train_dataloader, val_dataloader, categories, num_epochs=10, lr=1e-4, alpha=0.1, beta=0.001, save_model=True):
+def train_metamodel(model, train_dataloader, val_dataloader, categories, num_epochs=10, lr=1e-4, alpha=1, beta=0.001, tau=.5, save_model=True):
     model = model.cuda()
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
     mse_loss = nn.MSELoss()
-    ce_loss_fn = nn.CrossEntropyLoss()
+    ce_loss = nn.CrossEntropyLoss()
 
 
     # evaluate initial model
-    evaluate_metamodel(model, val_dataloader, 0, categories)
+    evaluate_metamodel(model, val_dataloader, 0, categories, tau)
 
     model.train()
     for epoch in range(1, num_epochs + 1):
@@ -225,7 +225,7 @@ def train_metamodel(model, train_dataloader, val_dataloader, categories, num_epo
 
             experts = torch.stack(predictions, dim=0).squeeze(2).permute(1, 0, 2, 3).cuda()
 
-            logits = model(images)  # (B, num_experts, H, W)
+            logits = model(images) / tau  # (B, num_experts, H, W) (tau = temperature for softmax and cross entropy loss)
 
             probs = F.softmax(logits, dim=1)  # (B, num_experts, H, W)
             pred_depth = torch.sum(probs * experts, dim=1, keepdim=True)  # (B, 1, H, W)
@@ -233,7 +233,11 @@ def train_metamodel(model, train_dataloader, val_dataloader, categories, num_epo
             errors = torch.abs(experts - depths.expand_as(experts))  # (B, num_experts, H, W)
             best_expert_indices = torch.argmin(errors, dim=1)  # (B, H, W)
 
-            loss =  mse_loss(pred_depth, depths) + alpha * ce_loss_fn(logits, best_expert_indices) + beta * entropy_loss(probs)
+            mse_loss_term = mse_loss(pred_depth, depths)
+            ce_loss_term = ce_loss(logits, best_expert_indices)
+            entropy_loss_term = entropy_loss(probs)
+
+            loss = mse_loss_term + alpha * ce_loss_term + beta * entropy_loss_term
 
             optimizer.zero_grad()
             loss.backward()
@@ -245,7 +249,7 @@ def train_metamodel(model, train_dataloader, val_dataloader, categories, num_epo
             train_loader_tqdm.set_postfix({'loss': running_loss / (train_loader_tqdm.n + 1e-8)})
 
         print(f"✅ Epoch [{epoch}/{num_epochs}] finished. Loss: {running_loss/len(train_dataloader):.4f}")
-        evaluate_metamodel(model, val_dataloader, epoch, categories)
+        evaluate_metamodel(model, val_dataloader, epoch, categories, tau)
 
     if save_model:
         torch.save(model.state_dict(), f"models/metamodel_final.pth")
@@ -253,7 +257,7 @@ def train_metamodel(model, train_dataloader, val_dataloader, categories, num_epo
     return model
 
 
-def evaluate_metamodel(model, val_dataloader, epoch, categories, visualize=True):
+def evaluate_metamodel(model, val_dataloader, epoch, categories, tau=1., visualize=True):
     model.eval()
     total_rmse = 0.0
     count = 0
@@ -266,7 +270,7 @@ def evaluate_metamodel(model, val_dataloader, epoch, categories, visualize=True)
             # Stack expert predictions: (B, num_experts, 1, H, W)
             experts = torch.cat(predictions, dim=1).cuda()
 
-            logits = model(images)  # (B, num_experts, H, W)
+            logits = model(images) / tau  # (B, num_experts, H, W)
             # Softmax over experts
             probs = F.softmax(logits, dim=1)  # (B, num_experts, H, W)
 
@@ -383,7 +387,7 @@ def visualize_batch(images, pred_depths, depths, probs_batch, best_expert_indice
             
             ax2[i].imshow(rgb_image)
             ax2[i].set_title(f'Prob {experts[i]}')
-            ax2[i].text(0.5, -0.1, f'Max: {np.max(prob):.4f}, Min: {np.min(prob):.4f}, Std: {np.std(prob):.4f}', transform=ax2[i].transAxes,ha='center', va='top', fontsize=10)
+            ax2[i].text(0.5, -0.1, f'Max: {np.max(prob):.4f}, Min: {np.min(prob):.4f}, Mean: {np.mean(prob):.4f}, Std: {np.std(prob):.4f}', transform=ax2[i].transAxes,ha='center', va='top', fontsize=10)
             ax2[i].axis('off')
 
         plt.tight_layout()
@@ -443,7 +447,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train metamodel to predict a pixel-wise linear combination of pixel from base and expert models")
     parser.add_argument("--train-list", type=str, required=True, help="Path to train list") # category_lists/bathroom_train_list.txt
     parser.add_argument("--val-list", type=str, required=True, help="Path to val list") # category_lists/bathroom_val_list.txt
-    parser.add_argument("--batch-size", type=int, default=4)
+    parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--num-epochs", type=int, default=5)
     args = parser.parse_args()
 
