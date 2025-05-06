@@ -117,6 +117,10 @@ class SimpleUNet(nn.Module):
 
         self.final = nn.Conv2d(64, num_experts, 1)
 
+        for layer in self.modules():
+            if isinstance(layer, nn.Conv2d):
+                nn.init.kaiming_normal_(layer.weight, mode='fan_out', nonlinearity='relu')
+
 
     def center_crop(self, tensor, target_tensor):
         _, _, h, w = target_tensor.shape
@@ -429,7 +433,7 @@ def main(args):
     #model.load_state_dict(torch.load(model_path))
     model = model.cuda()  # move to GPU after loading 
     model.eval()
-    evaluate_metamodel(model, val_dataloader, 5)
+    evaluate_metamodel(model, val_dataloader, 5, categories, visualize=True)
     print("Finished")
 
 
