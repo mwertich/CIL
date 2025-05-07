@@ -196,4 +196,4 @@ cython_debug/
 .pypirc
 
 src/data/predictions
-src/data/prediction_temp
+src/data/predictions_temp
