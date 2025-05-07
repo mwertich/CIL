@@ -37,10 +37,10 @@ if __name__ == "__main__":
     args = argparse.ArgumentParser(description='PyTorch Template')
     args.add_argument('-p', '--pretrained', default=None, type=str,
                       help='pretrained model path (default: None)')
-    args.add_argument('-v', '--val_size', default=None, type=int,
-                      help='validation set size (default: None)')
-    args.add_argument('-b', '--batch_size', default=None, type=int,
-                      help='batch size for dataloaders (default: None)')
+    args.add_argument('-v', '--val_size', default=5, type=int,
+                      help='validation set size (default: 5)')
+    args.add_argument('-b', '--batch_size', default=1, type=int,
+                      help='batch size for dataloaders (default: 1)')
     config = args.parse_args()
 
     torch_seed()

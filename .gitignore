@@ -16,6 +16,12 @@ eggs/
 .eggs/
 lib/
 lib64
+models/
+share/
+bin/
+depth_maps/
+etc/
+include
 share/
 bin/
 *.cfg
@@ -36,6 +42,10 @@ share/python-wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+output*.txt
+*.cfg
+data/
+
 MANIFEST
 
 # PyInstaller
