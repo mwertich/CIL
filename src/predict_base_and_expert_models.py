@@ -246,8 +246,8 @@ def main(config):
     for category in categories:
         os.makedirs(f"{predictions_root}/expert_models/{category}", exist_ok=True)
 
-    train_image_depth_pairs = load_image_depth_pairs(os.path.join(root, config.train_sample_list))
-    val_image_depth_pairs = load_image_depth_pairs(os.path.join(root, config.val_sample_list))
+    train_image_depth_pairs = load_image_depth_pairs(os.path.join(root, config.train_list))
+    val_image_depth_pairs = load_image_depth_pairs(os.path.join(root, config.val_list))
 
 
     # Dataset and Dataloader
@@ -263,6 +263,8 @@ def main(config):
     base_model = config.base_model_path
     expert_models = [f"models/model_{category}_finetuned.pth" for category in categories]
 
+    expert_models = [f"models/model_finetuned_epoch_{epoch}.pth" for epoch in [12, 13, 14, 15, 16]]
+
     print("✅ Predict with base uncertainty model on training/validation data")
     predict_base_model(base_model, train_dataloader, val_dataloader, out_dir_base)
 
@@ -277,8 +279,8 @@ def main(config):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Fine-tune MiDaS model for indoor depth estimation by category.")
     parser.add_argument("--base-model-path", type=str, required=True)
-    parser.add_argument("--train-sample-list", type=str, required=True, help="Path to sample train list")
-    parser.add_argument("--val-sample-list", type=str, required=True, help="Path to sample val list")
+    parser.add_argument("--train-list", type=str, required=True, help="Path to sample train list")
+    parser.add_argument("--val-list", type=str, required=True, help="Path to sample val list")
     parser.add_argument("--batch-size", type=int, default=4)
     config = parser.parse_args()
 
