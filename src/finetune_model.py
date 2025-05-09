@@ -116,7 +116,7 @@ if __name__ == "__main__":
     model.load_state_dict(filtered_state_dict, strict=False)
 
     image_size = [426, 560]
-    train_loader, val_loader, test_loader = get_dataloaders(image_size, 100, 5, 1, train_list="train_list.txt", val_list="val_list.txt", test_list="test_list.txt")
+    train_loader, val_loader, test_loader = get_dataloaders(image_size, config.train_size, config.val_size, config.batch_size, train_list="train_list.txt", val_list="val_list.txt", test_list="test_list.txt")
 
     # train_loader = get_dataloader(image_size=image_size, mode='train', set_size=config.train_size, batch_size=config.batch_size)
     # val_loader   = get_dataloader(image_size=image_size, mode='val', set_size=config.val_size, batch_size=config.batch_size)
