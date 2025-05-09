@@ -14,16 +14,17 @@ from utils.loss_funcs import scale_invariant_rmse
 from utils.dataloader import get_dataloader
 from model import MiDaSUQ
 from utils.visualization import denormalize_image
+from evaluate import evaluate_model_notebook
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 image_size = [426, 560]
 
 
-def evaluate_model(model, val_loader, epoch):
+def evaluate_model(model, val_loader, epoch=0):
     model.eval()
-    total_rmse = 0.0
+    total_sirmse = 0.0
     with torch.no_grad():
-        for images, depths in val_loader:
+        for images, depths in tqdm(val_loader, desc="Evaluating"):
             images = images.to(device)
             depths = depths.to(device)
 
@@ -38,10 +39,10 @@ def evaluate_model(model, val_loader, epoch):
             preds_resized = preds_resized.clamp(min=eps) # for numerical stability for RMSE to avoid nan values due to log(0)
 
             loss = scale_invariant_rmse(preds_resized, depths)
-            total_rmse += loss.item()
+            total_sirmse += loss.item()
 
-    avg_rmse = total_rmse / len(val_loader)
-    print(f"✅ Scale-Invariant RMSE after epoch {epoch}: {avg_rmse:.4f}")
+    sirmse = total_sirmse / len(val_loader)
+    print(f"✅ Scale-Invariant RMSE after epoch {epoch}: {sirmse:.4f}")
 
 
 
@@ -56,7 +57,7 @@ def finetune_model(model, train_loader, val_loader, out_path, epochs=5, lr=1e-5,
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 
     #evaluate initial model
-    evaluate_model(model, val_loader, 0)
+    #evaluate_model(model, val_loader, 0)
 
     # Training loop
     for epoch in range(1, epochs + 1):
@@ -88,7 +89,7 @@ def finetune_model(model, train_loader, val_loader, out_path, epochs=5, lr=1e-5,
         evaluate_model(model, val_loader, epoch)
         # Save model after each epoch
         
-        #model_path = f"models/model_finetuned_epoch_{epoch}.pth"
+        model_path = f"models/model_finetuned_epoch_{epoch}.pth"
         #torch.save(model.state_dict(), model_path)
         #print(f"💾 Model saved to models/{model_path}")
 
@@ -236,12 +237,13 @@ def main(config):
 
     model.eval()
     print("✅ Evaluate fine-tuned MiDaS model.")
-    evaluate_model(model, val_loader, config.epochs)
+    evaluate_model(model, val_loader)
+    evaluate_model_notebook(model, val_loader, device)
 
     print("✅ Predict with fine-tuned MiDaS model.")
     #visualize_prediction_with_ground_truth(model, val_loader, num_images=10)
     #visualize_prediction_without_ground_truth(model, test_loader, num_images=10)
-    predict_model(model, test_loader)
+    #predict_model(model, test_loader)
     print("Finished")
 
 
@@ -254,7 +256,7 @@ if __name__ == "__main__":
     args.add_argument("--train-size", type=int, default=None, help="Subset size of training data")
     args.add_argument("--val-size", type=int, default=None, help="Subset size of validaton data")
     args.add_argument("--epochs", type=int, default=10, help="Number of training epochs")
-    args.add_argument("--batch-size", type=int, default=3,help="Batch size")
+    args.add_argument("-b", "--batch-size", type=int, default=4,help="Batch size")
     args.add_argument("--uq", type=bool, default=False)
     config = args.parse_args()
 
