@@ -1,8 +1,12 @@
+from utils.utils import torch_seed
+torch_seed()
+
 import os
+import sys
 import argparse
 import torch
 import torch.nn as nn
-from utils.dataloader import get_dataloader
+from utils.dataloader import get_dataloaders
 from utils.visualization import visualize_prediction_with_ground_truth, visualize_prediction_without_ground_truth
 from utils.loss_funcs import DepthUncertaintyLoss, scale_invariant_rmse
 from utils.utils import torch_seed
@@ -96,8 +100,9 @@ if __name__ == "__main__":
 
     run_id = datetime.now().strftime("%y%m%d_%H%M%S")
     print('---------------- Run id:', run_id, '----------------')
+    print(' '.join(sys.argv))
+    print(config)
 
-    torch_seed()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # Load model and transforms
@@ -111,9 +116,11 @@ if __name__ == "__main__":
     model.load_state_dict(filtered_state_dict, strict=False)
 
     image_size = [426, 560]
-    train_loader = get_dataloader(image_size=image_size, mode='train', set_size=config.train_size, batch_size=config.batch_size)
-    val_loader   = get_dataloader(image_size=image_size, mode='val', set_size=config.val_size, batch_size=config.batch_size)
-    test_loader  = get_dataloader(image_size=image_size, mode='test', set_size=None, batch_size=config.batch_size)
+    train_loader, val_loader, test_loader = get_dataloaders(image_size, 100, 5, 1, train_list="train_list.txt", val_list="val_list.txt", test_list="test_list.txt")
+
+    # train_loader = get_dataloader(image_size=image_size, mode='train', set_size=config.train_size, batch_size=config.batch_size)
+    # val_loader   = get_dataloader(image_size=image_size, mode='val', set_size=config.val_size, batch_size=config.batch_size)
+    # test_loader  = get_dataloader(image_size=image_size, mode='test', set_size=None, batch_size=config.batch_size)
 
     # num_epochs = 1
     finetune_model(model, train_loader, val_loader, out_path=f"models/model_{run_id}_finetuned.pth", epochs=config.epochs)

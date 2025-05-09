@@ -1,6 +1,7 @@
 import os
 import torch
 from torch.utils.data import Dataset, DataLoader
+from torch.utils.data.sampler import RandomSampler
 import numpy as np
 import cv2
 
@@ -121,29 +122,30 @@ def get_dataloaders(image_size, train_size, val_size, batch_size, train_list="tr
     val_image_depth_pairs = load_image_depth_pairs(os.path.join(root, val_list))
     test_image_depth_pairs = load_image_depth_pairs(os.path.join(root, test_list))
 
-    # train_size = 5  #19176/23971
-    # val_size = 250       #4795/23971
-
     train_pairs = train_image_depth_pairs[:train_size] if train_size else train_image_depth_pairs
     val_pairs = val_image_depth_pairs[:val_size] if val_size else val_image_depth_pairs
     test_pairs = test_image_depth_pairs
 
     # Dataset and Dataloader
+    g = torch.Generator()
+    g.manual_seed(0)
+
     train_batch_size, val_batch_size, test_batch_size = batch_size, batch_size, batch_size
 
     train_dataset = ImageDepthDataset(train_image_folder, train_depth_folder, transform, train_pairs)
-    train_loader = DataLoader(train_dataset, batch_size=train_batch_size, shuffle=True)
+    sampler = RandomSampler(train_dataset, generator=g)
+    train_loader = DataLoader(train_dataset, batch_size=train_batch_size, sampler=sampler)
 
-    val_dataset = ImageDepthDataset(train_image_folder, val_batch_size, transform, val_pairs)
-    val_loader = DataLoader(val_dataset, batch_size=val_batch_size, shuffle=True)
+    val_dataset = ImageDepthDataset(train_image_folder, train_depth_folder, transform, val_pairs)
+    val_loader = DataLoader(val_dataset, batch_size=val_batch_size, shuffle=False)
 
     test_dataset = TestImageDepthDataset(test_image_folder, test_depth_folder, transform, test_pairs)
-    test_loader = DataLoader(test_dataset, batch_size=test_batch_size, shuffle=True)
+    test_loader = DataLoader(test_dataset, batch_size=test_batch_size, shuffle=False)
     return train_loader, val_loader, test_loader
 
 
 def get_dataloader(image_size, mode, set_size, batch_size,  train_list="train_list.txt", val_list="val_list.txt", test_list="test_list.txt", sharpen=False):
-    transform = torch.hub.load("intel-isl/MiDaS", "transforms").dpt_transform
+    transform = torch.hub.load("intel-isl/MiDaS", "transforms").dpt_transform # preprocessing (normalization etc.)
     
     root = "src/data"
     image_folder = os.path.join(root, "train") if mode in ['train', 'val'] else os.path.join(root, "test")
