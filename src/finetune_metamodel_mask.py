@@ -45,9 +45,15 @@ def scale_invariant_rmse(predicted, ground_truth):
     return loss.mean()  # scalar
 
 
-def entropy_loss(probs):
+def entropy_loss(probs, mask=None, eps=1e-8):
     # probs: (B, num_experts, H, W)
-    return -torch.mean(torch.sum(probs * torch.log(probs + 1e-8), dim=1))
+    ent = -torch.sum(probs * torch.log(probs + eps), dim=1)  # shape: (B, H, W)
+    
+    if mask is not None:
+        ent = ent * mask.float()  # Apply the spatial mask
+        return ent.sum() / mask.float().sum()  # Mean over masked pixels
+    else:
+        return ent.mean()
     
 
 def load_image_depth_pairs(file_path):
@@ -68,7 +74,7 @@ def load_image_depth_pairs(file_path):
     return pairs
 
 
-def train_metamodel(model, train_dataloader, val_dataloader, categories, num_epochs=10, lr=1e-4, threshold=0.06, alpha=1, beta=0, gamma=0, tau=1, save_model=True):
+def train_metamodel(model, train_dataloader, val_dataloader, categories, num_epochs=10, lr=1e-4, threshold=0.06, alpha=1, beta=0., gamma=0., tau=1, save_model=True):
     model = model.cuda()
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
     mse_loss = nn.MSELoss()
@@ -118,7 +124,8 @@ def train_metamodel(model, train_dataloader, val_dataloader, categories, num_epo
             final_prediction = torch.empty_like(depths)
 
             # (1) Use expert 0 prediction where uncertainty is low
-            final_prediction[:, 0][~uncertainty_mask] = expert_predictions[:, 0][~uncertainty_mask]
+            base_model_prediction = expert_predictions[:, 0]
+            final_prediction[:, 0][~uncertainty_mask] = base_model_prediction[~uncertainty_mask]
 
             # (2) Use soft combination where uncertainty is high
             soft_pred = torch.sum(probs * expert_predictions, dim=1)  # (B, H, W)
@@ -138,7 +145,7 @@ def train_metamodel(model, train_dataloader, val_dataloader, categories, num_epo
             ce = (ce_raw * mask_loss.float()).mean()  # Apply mask
 
             # Final loss
-            loss = alpha * mse + beta * ce + gamma * entropy_loss(probs)
+            loss = alpha * mse + beta * ce + gamma * entropy_loss(probs, mask_loss)
 
             optimizer.zero_grad()
             loss.backward()
@@ -158,7 +165,7 @@ def train_metamodel(model, train_dataloader, val_dataloader, categories, num_epo
     return model
 
 
-def evaluate_metamodel(model, val_dataloader, epoch, categories, threshold=0.1, tau=1., visualize=True):
+def evaluate_metamodel(model, val_dataloader, epoch, categories, threshold=0.03, tau=1., visualize=True):
     model.eval()
     total_rmse = 0.0
     count = 0
@@ -193,7 +200,8 @@ def evaluate_metamodel(model, val_dataloader, epoch, categories, threshold=0.1, 
             uncertainty_mask = (uncertainty > threshold).squeeze(1)  # (B, H, W)
 
             # (1) Use expert 0 prediction where uncertainty is low
-            final_prediction[:, 0][~uncertainty_mask] = expert_predictions[:, 0][~uncertainty_mask]
+            base_model_prediction = expert_predictions[:, 0]
+            final_prediction[:, 0][~uncertainty_mask] = base_model_prediction[~uncertainty_mask]
             predicted_indices[~uncertainty_mask] = 0
 
             # (2) Use soft combination where uncertainty is high
@@ -220,6 +228,44 @@ def evaluate_metamodel(model, val_dataloader, epoch, categories, threshold=0.1, 
 
     avg_rmse = total_rmse / len(val_dataloader)
     print(f"✅ Scale-Invariant RMSE after epoch {epoch}: {avg_rmse:.4f}")
+
+
+def predict_metamodel(model, test_dataloader, threshold=0.03, tau=1., prediction_folder="src/data/predictions"):
+    model.eval()
+    with torch.no_grad():
+        for batch in test_dataloader:
+            images, depth_file_names, predictions, uncertainty = batch
+            images = images.cuda().permute(0, 3, 1, 2)  # (B, C, H, W)
+
+            # Stack expert predictions: (B, num_experts, 1, H, W)
+            expert_predictions = torch.stack(predictions, dim=0).squeeze(2).permute(1, 0, 2, 3).cuda()
+
+            logits = model(images) / tau  # (B, num_experts, H, W)
+            logits = F.interpolate(logits, size=expert_predictions.shape[-2:], mode='bilinear', align_corners=False)
+            # Softmax over experts
+            probs = F.softmax(logits, dim=1)  # (B, num_experts, H, W)
+
+            # Compute softmax-based depth only at uncertain pixels
+            shape = list(images.shape)
+            shape[1] = 1
+            final_prediction = torch.empty(shape, dtype=images.dtype, device=images.device)
+
+            uncertainty_mask = (uncertainty > threshold).squeeze(1)  # (B, H, W)
+
+            # (1) Use expert 0 prediction where uncertainty is low
+            base_model_prediction = expert_predictions[:, 0]
+            final_prediction[:, 0][~uncertainty_mask] = base_model_prediction[~uncertainty_mask]
+
+            # (2) Use soft combination where uncertainty is high
+            soft_pred = torch.sum(probs * expert_predictions, dim=1)  # (B, H, W)
+            final_prediction[:, 0][uncertainty_mask] = soft_pred[uncertainty_mask]
+
+            for pred, depth_file_name in zip(final_prediction, depth_file_names):
+                depth_file_path = os.path.join(prediction_folder, depth_file_name)
+                np.save(depth_file_path, pred.cpu())
+
+
+
 
 
 def visualize_batch(images, pred_depths, depths, probs_batch, predicted_indices_batch, best_expert_indices_batch, uncertainties, masks, categories, save_path="meta_maps"):
@@ -331,13 +377,15 @@ def visualize_batch(images, pred_depths, depths, probs_batch, predicted_indices_
         plt.close()
 
 
-def main(args):
+def main(config):
 
     root = "src/data"
     cluster_root = "src/data" # "/cluster/courses/cil/monocular_depth/data/"
 
     train_image_folder = os.path.join(cluster_root, "train")
     train_depth_folder = os.path.join(cluster_root, "train")
+    val_image_folder = os.path.join(cluster_root, "train")
+    val_depth_folder = os.path.join(cluster_root, "train")
     test_image_folder = os.path.join(cluster_root, "test")
 
     categories = ["kitchen", "bathroom", "dorm_room", "living_room", "home_office"]
@@ -345,28 +393,33 @@ def main(args):
     base_predictions_path = os.path.join(root, "predictions_temp/base_model")
     expert_predictions_path = os.path.join(root, "predictions_temp/expert_models")
 
-    train_image_depth_pairs = load_image_depth_pairs(os.path.join(root, args.train_list))
-    val_image_depth_pairs = load_image_depth_pairs(os.path.join(root, args.val_list))
-    #test_image_depth_pairs = load_image_depth_pairs(os.path.join(root, args.test_list))
+    train_image_depth_pairs = load_image_depth_pairs(os.path.join(root, config.train_list))
+    val_image_depth_pairs = load_image_depth_pairs(os.path.join(root, config.val_list))
+    test_image_depth_pairs = load_image_depth_pairs(os.path.join(root, "test_list.txt"))
 
     # Dataset and Dataloader
     train_dataset = ExpertTrainDataset(train_image_folder, train_depth_folder, train_image_depth_pairs, base_predictions_path, expert_predictions_path, categories)
-    val_dataset = ExpertTrainDataset(train_image_folder, train_depth_folder, val_image_depth_pairs, base_predictions_path, expert_predictions_path, categories)
-    test_dataset = ExpertTestDataset(train_image_folder, train_image_depth_pairs, base_predictions_path, expert_predictions_path, categories)
+    val_dataset = ExpertTrainDataset(val_image_folder, val_depth_folder, val_image_depth_pairs, base_predictions_path, expert_predictions_path, categories)
+    test_dataset = ExpertTestDataset(test_image_folder, test_image_depth_pairs, base_predictions_path, expert_predictions_path, categories)
 
-    train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
-    val_dataloader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=True)
+    train_dataloader = DataLoader(train_dataset, batch_size=config.batch_size, shuffle=True)
+    val_dataloader = DataLoader(val_dataset, batch_size=config.batch_size, shuffle=True)
+    test_dataloader = DataLoader(test_dataset, batch_size=config.batch_size, shuffle=True)
     
-    model = AttentionUNet(num_experts=num_experts)
+    model = AttentionUNet(in_channels=3, num_experts=num_experts)
+    uncertainty_threshold = config.uncertainty_threshold
+    tau=config.tau
 
     print("✅ Train Metamodel")
-    train_metamodel(model, train_dataloader, val_dataloader, categories, num_epochs=args.num_epochs)
+    train_metamodel(model, train_dataloader, val_dataloader, categories, num_epochs=config.num_epochs, threshold=uncertainty_threshold, tau=tau)
     print("Evaluate MetaModel")
     model_path = "models/metamodel_final.pth"
-    #model.load_state_dict(torch.load(model_path))
+    model.load_state_dict(torch.load(model_path))
     model = model.cuda()  # move to GPU after loading 
     model.eval()
-    evaluate_metamodel(model, val_dataloader, 5, categories)
+    evaluate_metamodel(model, val_dataloader, config.num_epochs, categories, threshold=uncertainty_threshold, tau=tau)
+    print("Predict MetaModel")
+    predict_metamodel(model, test_dataloader, threshold=uncertainty_threshold, tau=tau)
     print("Finished")
 
 
@@ -375,11 +428,13 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train metamodel to predict a pixel-wise linear combination of pixel from base and expert models")
     parser.add_argument("--train-list", type=str, required=True, help="Path to train list") # category_lists/bathroom_train_list.txt
     parser.add_argument("--val-list", type=str, required=True, help="Path to val list") # category_lists/bathroom_val_list.txt
-    parser.add_argument("--batch-size", type=int, default=4)
-    parser.add_argument("--num-epochs", type=int, default=5)
-    args = parser.parse_args()
+    parser.add_argument("--batch-size", type=int, default=8)
+    parser.add_argument("--num-epochs", type=int, default=10)
+    parser.add_argument("--uncertainty-threshold", type=int, default=0.05, help="Only evaluate loss at uncertain regions (uncertainty > threshold), otherwise base model")
+    parser.add_argument("--tau", type=int, default=1., help="temperature of model outputs before softmax (logits)")
+    config = parser.parse_args()
 
     run_id = datetime.now().strftime("%y%m%d_%H%M%S")
     print('---------------- Run id:', run_id, '----------------')
 
-    main(args)
+    main(config)

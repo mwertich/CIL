@@ -54,7 +54,7 @@ def load_image_depth_pairs(file_path):
     return pairs
 
 
-def predict_base_model(model_path, train_loader, val_loader, out_dir, eps=1e-8):
+def predict_base_model(model_path, train_loader, val_loader, test_loader, out_dir, eps=1e-8):
     # Reload the architecture
     model = MiDaSUQ(backbone="vitl16_384")
     model.to(device)
@@ -63,7 +63,7 @@ def predict_base_model(model_path, train_loader, val_loader, out_dir, eps=1e-8):
     model.eval()
     print(f"✅ Loaded fine-tuned MiDaS base model.")
     with torch.no_grad():
-        for loader in [train_loader, val_loader]:
+        for loader in [train_loader, val_loader, test_loader]:
             for images, image_file_names in loader:
                 images = images.to(device)
                 pred_depths, pred_logvars = model(images)
@@ -85,7 +85,7 @@ def predict_base_model(model_path, train_loader, val_loader, out_dir, eps=1e-8):
                     np.save(storage_path, pred_logvars.cpu())
 
 
-def predict_ensemble(model_paths, categories, train_loader, val_loader, out_dir, eps=1e-8):
+def predict_ensemble(model_paths, categories, train_loader, val_loader, test_loader, out_dir, eps=1e-8):
     for model_path, category in zip(model_paths, categories):
         # Reload the architecture
         model = torch.hub.load("intel-isl/MiDaS", "DPT_Large")
@@ -97,7 +97,7 @@ def predict_ensemble(model_paths, categories, train_loader, val_loader, out_dir,
         print(f"✅ Loaded fine-tuned MiDaS model for {category}.")
         out_path = os.path.join(out_dir, category)
         with torch.no_grad():
-            for loader in [train_loader, val_loader]:
+            for loader in [train_loader, val_loader, test_loader]:
                 for images, image_file_names in loader:
                     images = images.to(device)
                     preds = model(images)
@@ -248,13 +248,16 @@ def main(config):
 
     train_image_depth_pairs = load_image_depth_pairs(os.path.join(root, config.train_list))
     val_image_depth_pairs = load_image_depth_pairs(os.path.join(root, config.val_list))
+    test_image_depth_pairs = load_image_depth_pairs(os.path.join(root, config.test_list))
 
 
     # Dataset and Dataloader
     train_dataset = ImageDepthDataset(train_image_folder, transform, train_image_depth_pairs)
     val_dataset = ImageDepthDataset(train_image_folder, transform, val_image_depth_pairs)
+    test_dataset = ImageDepthDataset(test_image_folder, transform, test_image_depth_pairs)
     train_dataloader = DataLoader(train_dataset, batch_size=config.batch_size, shuffle=True)
     val_dataloader = DataLoader(val_dataset, batch_size=config.batch_size, shuffle=True)
+    test_dataloader = DataLoader(test_dataset, batch_size=config.batch_size, shuffle=True)
 
     out_dir_base = os.path.join(predictions_root, "base_model")
     out_dir_experts = os.path.join(predictions_root, "expert_models")
@@ -265,11 +268,11 @@ def main(config):
 
     expert_models = [f"models/model_finetuned_epoch_{epoch}.pth" for epoch in [12, 13, 14, 15, 16]]
 
-    print("✅ Predict with base uncertainty model on training/validation data")
-    predict_base_model(base_model, train_dataloader, val_dataloader, out_dir_base)
+    print("✅ Predict with base uncertainty model on training/validation/test data")
+    predict_base_model(base_model, train_dataloader, val_dataloader, test_dataloader, out_dir_base)
 
-    print("✅ Predict with expert model ensemble on training/validation data.")
-    predict_ensemble(expert_models, categories, train_dataloader, val_dataloader, out_dir_experts)
+    print("✅ Predict with expert model ensemble on training/validation/test data.")
+    predict_ensemble(expert_models, categories, train_dataloader, val_dataloader, test_dataloader, out_dir_experts)
 
     print("Finished")
 
@@ -281,6 +284,7 @@ if __name__ == "__main__":
     parser.add_argument("--base-model-path", type=str, required=True)
     parser.add_argument("--train-list", type=str, required=True, help="Path to sample train list")
     parser.add_argument("--val-list", type=str, required=True, help="Path to sample val list")
+    parser.add_argument("--test-list", type=str, default="test_list.txt", help="Path to sample test list")
     parser.add_argument("--batch-size", type=int, default=4)
     config = parser.parse_args()
 

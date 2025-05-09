@@ -69,10 +69,10 @@ class ExpertTestDataset(Dataset):
         predictions = []
 
         base_model_prediction_path = os.path.join(self.base_predictions_path, depth_file_name)
-        base_pred_depth = torch.from_numpy(np.load(base_model_prediction_path)).unsqueeze(0).float()
+        base_pred_depth = torch.from_numpy(np.load(base_model_prediction_path)).float()
 
         uncertainty_path = os.path.join(self.base_predictions_path, depth_file_name.replace("depth", "uncertainty"))
-        uncertainty = torch.from_numpy(np.load(uncertainty_path)).unsqueeze(0).float()
+        uncertainty = np.load(uncertainty_path)
         uncertainty = (uncertainty - uncertainty.min()) / (uncertainty.max() - uncertainty.min())
 
         predictions.append(base_pred_depth)
@@ -80,6 +80,6 @@ class ExpertTestDataset(Dataset):
         for category in self.categories:
             expert_prediction_dir = os.path.join(self.expert_predictions_path, category)
             pred_file = os.path.join(expert_prediction_dir, depth_file_name)
-            pred_depth = torch.from_numpy(np.load(pred_file)).unsqueeze(0).float()
+            pred_depth = torch.from_numpy(np.load(pred_file)).float()
             predictions.append(pred_depth)
         return image, depth_file_name, predictions, uncertainty
