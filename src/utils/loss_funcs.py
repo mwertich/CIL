@@ -34,8 +34,8 @@ def scale_invariant_rmse(predicted, ground_truth):
     # Compute the global bias (alpha)
     alpha = torch.mean(log_diff, dim=1, keepdim=True)
 
-    # Add bias and compute RMSE
-    corrected_diff = log_diff - alpha  # Important! Subtract bias before squaring (wrong on Kaggle)
+    #Compute RMSE
+    corrected_diff = log_diff - alpha  # Important! Subtract before squaring (wrong on Kaggle)
     loss = torch.sqrt(torch.mean(corrected_diff ** 2, dim=1))
 
     return loss.mean() # scalar
