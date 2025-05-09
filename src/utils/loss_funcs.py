@@ -35,7 +35,7 @@ def scale_invariant_rmse(predicted, ground_truth):
     alpha = torch.mean(log_diff, dim=1, keepdim=True)
 
     #Compute RMSE
-    corrected_diff = log_diff - alpha  # Important! Subtract before squaring (wrong on Kaggle)
+    corrected_diff = log_diff + alpha  # Important! Subtract before squaring (wrong on Kaggle)
     loss = torch.sqrt(torch.mean(corrected_diff ** 2, dim=1))
 
     return loss.mean() # scalar
