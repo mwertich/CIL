@@ -89,8 +89,8 @@ def finetune_model(model, train_loader, val_loader, out_path, epochs=5, lr=1e-5)
 
 if __name__ == "__main__":
     args = argparse.ArgumentParser(description='PyTorch Template')
-    args.add_argument('-p', '--pretrained', default=None, type=str,
-                      help='pretrained model path (default: None)')
+    args.add_argument('-p', '--pretrained', default='../.cache/torch/hub/checkpoints/dpt_large_384.pt', type=str,
+                      help='pretrained model path (default: ../.cache/torch/hub/checkpoints/dpt_large_384.pt)')
     args.add_argument('-e', '--epochs', default=1, type=int,
                       help='number of epochs for finetuning (default: 1)')
     args.add_argument('-t', '--train_size', default=100, type=int,
