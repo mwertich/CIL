@@ -32,7 +32,7 @@ def evaluate_notebook(model, val_loader, device="cuda", uq=False):
 
             # Forward pass
             if uq:
-                outputs = model(inputs)[:, 0]
+                outputs = model(inputs)[0]
             else:
                 outputs = model(inputs)
             
