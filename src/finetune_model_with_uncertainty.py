@@ -81,7 +81,7 @@ def finetune_model(model, train_loader, val_loader, out_path, epochs=5, lr=1e-5)
 
         # Save model and batch losses after each epoch
         model_path = f'models/model_{run_id}_finetuned_{epoch}.pth'
-        losses_path = f'models/batch_losses_{run_id}.npy'
+        losses_path = f'models/batch_losses_{run_id}_{epoch}.npy'
         torch.save(model.state_dict(), model_path)
         np.save(losses_path, np.array(batch_losses))
         print(f"💾 Model saved to {model_path}")
