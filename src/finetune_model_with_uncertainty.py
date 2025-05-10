@@ -44,6 +44,7 @@ def finetune_model(model, train_loader, val_loader, out_path, epochs=5, lr=1e-5)
 
     # Training loop
     for epoch in range(1, epochs + 1):
+        batch_losses = []
         running_loss = 0.0
         time = datetime.now()
         print(f"\n🕒 [{time.strftime('%Y-%m-%d %H:%M:%S')}] Epoch {epoch}/{epochs}")
@@ -72,15 +73,19 @@ def finetune_model(model, train_loader, val_loader, out_path, epochs=5, lr=1e-5)
             optimizer.step()
 
             running_loss += loss.item()
+            batch_losses.append(loss.item())
 
         print(f"✅ Epoch [{epoch}/{epochs}] finished. Loss: {running_loss/len(train_loader):.4f}")
         # evaluate_model(model, val_loader, epoch, device)
         evaluate_notebook(model, val_loader, device, uq=True)
-        # Save model after each epoch
-        
-        # model_path = f"models/model_finetuned_epoch_{epoch}.pth"
-        #torch.save(model.state_dict(), model_path)
-        #print(f"💾 Model saved to models/{model_path}")
+
+        # Save model and batch losses after each epoch
+        model_path = f'models/model_{run_id}_finetuned_{epoch}.pth'
+        losses_path = f'models/batch_losses_{run_id}.npy'
+        torch.save(model.state_dict(), model_path)
+        np.save(losses_path, np.array(batch_losses))
+        print(f"💾 Model saved to {model_path}")
+        print(f"💾 Batch losses saved to {losses_path}")
 
     # Save fine-tuned model
     torch.save(model.state_dict(), out_path)
