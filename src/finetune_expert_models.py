@@ -14,6 +14,7 @@ from utils.loss_funcs import scale_invariant_rmse
 from utils.dataloader import get_dataloader
 from model import MiDaSUQ
 from utils.visualization import denormalize_image
+from evaluate_notebook import evaluate_model_notebook
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 image_size = [426, 560]
@@ -56,7 +57,7 @@ def finetune_model(model, train_loader, val_loader, out_path, epochs=5, lr=1e-5,
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 
     #evaluate initial model
-    #evaluate_model(model, val_loader, 0)
+    evaluate_model_notebook(model, val_loader, device)
 
     # Training loop
     for epoch in range(1, epochs + 1):
@@ -85,7 +86,7 @@ def finetune_model(model, train_loader, val_loader, out_path, epochs=5, lr=1e-5,
             running_loss += loss.item()
 
         print(f"✅ Epoch [{epoch}/{epochs}] finished. Loss: {running_loss/len(train_loader):.4f}")
-        evaluate_model(model, val_loader, epoch)
+        evaluate_model_notebook(model, val_loader, device, epoch)
         # Save model after each epoch
         
         model_path = f"models/model_finetuned_epoch_{epoch}.pth"
@@ -212,11 +213,9 @@ def main(config):
     val_loader   = get_dataloader(image_size=image_size, mode='val', set_size=config.val_size, batch_size=config.batch_size, train_list=train_list, val_list=val_list, test_list=test_list, sharpen=False) #4795/23971
     test_loader  = get_dataloader(image_size=image_size, mode='test', set_size=None, batch_size=config.batch_size, train_list=train_list, val_list=val_list, test_list=test_list, sharpen=False) #650/650
 
-    if not config.category and config.pretrained:
+    if config.pretrained:
         model_path = config.pretrained
-        print(f"Load model from {model_path}")
-    elif config.category:
-        model_path = f"models/model_{category}_finetuned.pth"
+        print(f"Load model from {model_path}") #models/model_{category}_finetuned.pth"
 
     # Reload the architecture
     if config.uq:
@@ -232,11 +231,10 @@ def main(config):
     model.to(device)
     print("✅ Loaded fine-tuned MiDaS model.")
 
-    #finetune_model(model, train_loader, val_loader, out_path=model_path, epochs=config.epochs, save_model=True)
+    finetune_model(model, train_loader, val_loader, out_path=model_path, epochs=config.epochs, save_model=True)
 
     model.eval()
     print("✅ Evaluate fine-tuned MiDaS model.")
-    evaluate_model(model, val_loader)
     evaluate_model_notebook(model, val_loader, device)
 
     print("✅ Predict with fine-tuned MiDaS model.")
