@@ -10,9 +10,10 @@
             "request": "launch",
             "program": "${file}",
             "console": "integratedTerminal",
-            "args": ["--pretrained", "models/model_finetuned_epoch_16.pth", "--epochs", "0", "--val-size", "25", "-b", "1"],
-            //"args": ["-p", "models/model_250506_061517_finetuned.pth", "-b", "4", "-e", "0"],
-            //"args": ["--train-list", "train_list_small.txt", "--val-list", "val_list_small.txt"]
+            //"args": ["--pretrained", "models/model_finetuned_epoch_16.pth", "--epochs", "0", "--val-size", "25", "-b", "4"],
+            //"args": ["-p", "models/model_250506_074630_finetuned.pth", "-b", "4", "-e", "0"],
+            //"args": ["--base-model-path", "models/model_250506_074630_finetuned.pth", "--train-list", "train_list_small.txt", "--val-list", "val_list_small.txt"]
+            "args": ["--train-list", "train_list_small.txt", "--val-list", "val_list_small.txt"]
         }
     ]
 }

@@ -14,7 +14,6 @@ from utils.loss_funcs import scale_invariant_rmse
 from utils.dataloader import get_dataloader
 from model import MiDaSUQ
 from utils.visualization import denormalize_image
-from evaluate import evaluate_model_notebook
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 image_size = [426, 560]

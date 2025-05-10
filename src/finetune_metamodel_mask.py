@@ -50,7 +50,7 @@ def load_image_depth_pairs(file_path):
     return pairs
 
 
-def train_metamodel(model, train_dataloader, val_dataloader, categories, num_epochs=10, lr=1e-4, threshold=0.06, alpha=1, beta=0., gamma=0., tau=1, save_model=True):
+def train_metamodel(model, train_dataloader, val_dataloader, categories, num_epochs=10, lr=1e-4, threshold=0.06, alpha=1., beta=0., gamma=0., tau=1., save_model=True):
     model = model.cuda()
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
     mse_loss = nn.MSELoss()
@@ -389,7 +389,7 @@ def main(config):
     val_dataloader = DataLoader(val_dataset, batch_size=config.batch_size, shuffle=True)
     test_dataloader = DataLoader(test_dataset, batch_size=config.batch_size, shuffle=True)
     
-    model = AttentionUNet(in_channels=4, num_experts=num_experts)
+    model = SimpleUNet(in_channels=4, num_experts=num_experts)
     uncertainty_threshold = config.uncertainty_threshold
     tau=config.tau
 
