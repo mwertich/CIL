@@ -15,34 +15,10 @@ from datetime import datetime
 from tqdm import tqdm
 from meta_models import SimpleUNet, AttentionUNet
 from utils.expert_dataloader import ExpertTrainDataset, ExpertTestDataset
+from utils.loss_funcs import scale_invariant_rmse
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 image_size = [426, 560]
-
-
-def scale_invariant_rmse(predicted, ground_truth):
-    """
-    predicted: Tensor of shape (B, 1, H, W)
-    ground_truth: Tensor of shape (B, 1, H, W)
-    Returns: scalar tensor (loss value)
-    """
-
-    # Flatten spatial dimensions
-    B = predicted.size(0)
-    predicted = predicted.reshape(B, -1)
-    ground_truth = ground_truth.reshape(B, -1)
-
-    # Log difference
-    log_diff = torch.log(predicted) - torch.log(ground_truth)
-
-    # Compute the global bias (alpha)
-    alpha = torch.mean(log_diff, dim=1, keepdim=True)
-
-    # Add bias and compute RMSE
-    corrected_diff = log_diff + alpha  # Important! Add bias before squaring
-    loss = torch.sqrt(torch.mean(corrected_diff ** 2, dim=1))
-
-    return loss.mean()  # scalar
 
 
 def entropy_loss(probs, mask=None, eps=1e-8):
@@ -102,7 +78,9 @@ def train_metamodel(model, train_dataloader, val_dataloader, categories, num_epo
 
             expert_predictions = torch.stack(predictions, dim=0).squeeze(2).permute(1, 0, 2, 3).cuda()
 
-            logits = model(images) / tau  # (B, num_experts, H, W)
+            images_with_uncertainty = torch.cat((images, uncertainty), dim=1)
+
+            logits = model(images_with_uncertainty) / tau  # (B, num_experts, H, W)
             logits = F.interpolate(logits, size=expert_predictions.shape[-2:], mode='bilinear', align_corners=False)
 
             # Prepare uncertainty and resize to match expert resolution
@@ -174,11 +152,13 @@ def evaluate_metamodel(model, val_dataloader, epoch, categories, threshold=0.03,
             images, depths, predictions, uncertainty = batch
             images = images.cuda().permute(0, 3, 1, 2)  # (B, C, H, W)
             depths = depths.cuda()  # (B, 1, H, W)
+            uncertainty = uncertainty.cuda()
+            images_with_uncertainty = torch.cat((images, uncertainty), dim=1)
 
             # Stack expert predictions: (B, num_experts, 1, H, W)
             expert_predictions = torch.stack(predictions, dim=0).squeeze(2).permute(1, 0, 2, 3).cuda()
 
-            logits = model(images) / tau  # (B, num_experts, H, W)
+            logits = model(images_with_uncertainty) / tau  # (B, num_experts, H, W)
             logits = F.interpolate(logits, size=expert_predictions.shape[-2:], mode='bilinear', align_corners=False)
             # Softmax over experts
             probs = F.softmax(logits, dim=1)  # (B, num_experts, H, W)
@@ -236,11 +216,13 @@ def predict_metamodel(model, test_dataloader, threshold=0.03, tau=1., prediction
         for batch in test_dataloader:
             images, depth_file_names, predictions, uncertainty = batch
             images = images.cuda().permute(0, 3, 1, 2)  # (B, C, H, W)
+            uncertainty = uncertainty.cuda()
+            images_with_uncertainty = torch.cat((images, uncertainty), dim=1)
 
             # Stack expert predictions: (B, num_experts, 1, H, W)
             expert_predictions = torch.stack(predictions, dim=0).squeeze(2).permute(1, 0, 2, 3).cuda()
 
-            logits = model(images) / tau  # (B, num_experts, H, W)
+            logits = model(images_with_uncertainty) / tau  # (B, num_experts, H, W)
             logits = F.interpolate(logits, size=expert_predictions.shape[-2:], mode='bilinear', align_corners=False)
             # Softmax over experts
             probs = F.softmax(logits, dim=1)  # (B, num_experts, H, W)
@@ -299,6 +281,7 @@ def visualize_batch(images, pred_depths, depths, probs_batch, predicted_indices_
 
         # Predicted expert map
         predicted_expert_map = predicted_indices.cpu().numpy()  # (H, W)
+        mask = mask.cpu()
 
 
         # Best expert map (oracle)
@@ -406,7 +389,7 @@ def main(config):
     val_dataloader = DataLoader(val_dataset, batch_size=config.batch_size, shuffle=True)
     test_dataloader = DataLoader(test_dataset, batch_size=config.batch_size, shuffle=True)
     
-    model = AttentionUNet(in_channels=3, num_experts=num_experts)
+    model = AttentionUNet(in_channels=4, num_experts=num_experts)
     uncertainty_threshold = config.uncertainty_threshold
     tau=config.tau
 
@@ -419,7 +402,7 @@ def main(config):
     model.eval()
     evaluate_metamodel(model, val_dataloader, config.num_epochs, categories, threshold=uncertainty_threshold, tau=tau)
     print("Predict MetaModel")
-    predict_metamodel(model, test_dataloader, threshold=uncertainty_threshold, tau=tau)
+    #predict_metamodel(model, test_dataloader, threshold=uncertainty_threshold, tau=tau)
     print("Finished")
 
 
