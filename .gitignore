@@ -19,6 +19,7 @@ lib64
 models/
 share/
 bin/
+scripts/
 depth_maps/
 etc/
 include
