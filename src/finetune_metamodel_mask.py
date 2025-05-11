@@ -425,7 +425,7 @@ def main(config):
     tau=config.tau
 
     print("✅ Train Metamodel")
-    train_metamodel(model, train_dataloader, val_dataloader, categories, num_epochs=config.num_epochs, threshold=uncertainty_threshold, tau=tau)
+    train_metamodel(model, train_dataloader, val_dataloader, categories, num_epochs=config.num_epochs, threshold=uncertainty_threshold, tau=tau, alpha=config.alpha, beta=config.beta, gamma=config.gamma)
     print("Evaluate MetaModel")
     model_path = "models/metamodel_final.pth"
     model.load_state_dict(torch.load(model_path))
@@ -444,8 +444,11 @@ if __name__ == "__main__":
     parser.add_argument("--val-list", type=str, required=True, help="Path to val list") # category_lists/bathroom_val_list.txt
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--num-epochs", type=int, default=10)
-    parser.add_argument("--uncertainty-threshold", type=int, default=0.05, help="Only evaluate loss at uncertain regions (uncertainty > threshold), otherwise base model")
-    parser.add_argument("--tau", type=int, default=4, help="temperature of model outputs before softmax (logits)")
+    parser.add_argument("--uncertainty-threshold", type=float, default=0.05, help="Only evaluate loss at uncertain regions (uncertainty > threshold), otherwise base model")
+    parser.add_argument("--alpha", type=float, default=1., help="mse loss of masked region")
+    parser.add_argument("--beta", type=float, default=1., help="cross entropy loss of masked region (with best expert per pixel)")
+    parser.add_argument("--gamma", type=float, default=1., help="entropy regularization (punishes flat distributions in terms of post-softmax values)")
+    parser.add_argument("--tau", type=float, default=4., help="temperature of model outputs before softmax (logits)")
     config = parser.parse_args()
 
     run_id = datetime.now().strftime("%y%m%d_%H%M%S")
