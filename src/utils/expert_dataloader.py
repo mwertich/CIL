@@ -28,16 +28,17 @@ class ExpertTrainDataset(Dataset):
 
         image = torch.from_numpy(image / 255).float()
         depth = torch.from_numpy(depth).unsqueeze(0).float()
-        predictions = []
+        predictions, uncertainties = [], []
 
         base_model_prediction_path = os.path.join(self.base_predictions_path, depth_file_name)
         base_pred_depth = torch.from_numpy(np.load(base_model_prediction_path)).float()
         
         uncertainty_path = os.path.join(self.base_predictions_path, depth_file_name.replace("depth", "uncertainty"))
-        uncertainty = np.load(uncertainty_path)
-        uncertainty = (uncertainty - uncertainty.min()) / (uncertainty.max() - uncertainty.min())
+        uncertainty_base = np.load(uncertainty_path)
+        uncertainty_base = ((uncertainty_base - uncertainty_base.min()) / (uncertainty_base.max() - uncertainty_base.min())).clip(min=1e-8)
 
         predictions.append(base_pred_depth)
+        uncertainties.append(uncertainty_base)
 
         for category in self.categories:
             expert_prediction_dir = os.path.join(self.expert_predictions_path, category)
@@ -45,7 +46,11 @@ class ExpertTrainDataset(Dataset):
             pred_depth = torch.from_numpy(np.load(pred_file)).float()
             predictions.append(pred_depth)
 
-        return image, depth, predictions, uncertainty
+            uncertainty_expert = np.load(pred_file.replace("depth", "uncertainty"))
+            uncertainty_expert = ((uncertainty_expert - uncertainty_expert.min()) / (uncertainty_expert.max() - uncertainty_expert.min())).clip(min=1e-8)
+            uncertainties.append(uncertainty_expert)
+
+        return image, depth, predictions, uncertainties
     
 
 class ExpertTestDataset(Dataset):
@@ -66,20 +71,26 @@ class ExpertTestDataset(Dataset):
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
         image = torch.from_numpy(image / 255).float()
-        predictions = []
+        predictions, uncertainties = [], []
 
         base_model_prediction_path = os.path.join(self.base_predictions_path, depth_file_name)
         base_pred_depth = torch.from_numpy(np.load(base_model_prediction_path)).float()
 
         uncertainty_path = os.path.join(self.base_predictions_path, depth_file_name.replace("depth", "uncertainty"))
-        uncertainty = np.load(uncertainty_path)
-        uncertainty = (uncertainty - uncertainty.min()) / (uncertainty.max() - uncertainty.min())
+        uncertainty_base = np.load(uncertainty_path)
+        uncertainty_base = ((uncertainty_base - uncertainty_base.min()) / (uncertainty_base.max() - uncertainty_base.min())).clip(min=1e-8)
 
         predictions.append(base_pred_depth)
+        uncertainties.append(uncertainty_base)
 
         for category in self.categories:
             expert_prediction_dir = os.path.join(self.expert_predictions_path, category)
             pred_file = os.path.join(expert_prediction_dir, depth_file_name)
             pred_depth = torch.from_numpy(np.load(pred_file)).float()
             predictions.append(pred_depth)
-        return image, depth_file_name, predictions, uncertainty
+
+            uncertainty_expert = np.load(pred_file.replace("depth", "uncertainty"))
+            uncertainty_expert = ((uncertainty_expert - uncertainty_expert.min()) / (uncertainty_expert.max() - uncertainty_expert.min())).clip(min=1e-8)
+            uncertainties.append(uncertainty_expert)
+
+        return image, depth_file_name, predictions, uncertainties

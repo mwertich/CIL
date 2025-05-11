@@ -14,6 +14,9 @@ from model import MiDaSUQ
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 image_size = [426, 560]
+# Set a fixed random seed for reproducibility
+torch.manual_seed(0)
+
 
 class ImageDepthDataset(Dataset):
     def __init__(self, image_dir, transform, image_depth_file_pairs):
@@ -34,7 +37,6 @@ class ImageDepthDataset(Dataset):
 
         return image, image_file
     
-
 
 def load_image_depth_pairs(file_path):
     """
@@ -64,17 +66,16 @@ def predict_base_model(model_path, train_loader, val_loader, test_loader, out_di
     print(f"✅ Loaded fine-tuned MiDaS base model.")
     with torch.no_grad():
         for loader in [train_loader, val_loader, test_loader]:
-            for images, image_file_names in loader:
+            for images, image_file_names in tqdm(loader, f"Predict with {model_path}"):
                 images = images.to(device)
                 pred_depths, pred_logvars = model(images)
                 pred_depths_resized = torch.nn.functional.interpolate(
                     pred_depths.unsqueeze(1), size=image_size, mode="bicubic", align_corners=False
-                )
+                ).clamp(min=eps)
                 
                 pred_logvars_resized = torch.nn.functional.interpolate(
                     pred_logvars.unsqueeze(1), size=image_size, mode="bicubic", align_corners=False
-                )
-                pred_depths_resized = pred_depths_resized.clamp(min=eps) # for numerical stability for RMSE to avoid nan values due to log(0)
+                ).clamp(min=eps) # for numerical stability for RMSE to avoid nan values due to log(0)
 
                 for pred_depth, file_name in zip(pred_depths_resized, image_file_names):
                     storage_path = os.path.join(out_dir, f"{file_name[:-8]}_depth")
@@ -85,29 +86,41 @@ def predict_base_model(model_path, train_loader, val_loader, test_loader, out_di
                     np.save(storage_path, pred_logvars.cpu())
 
 
-def predict_ensemble(model_paths, categories, train_loader, val_loader, test_loader, out_dir, eps=1e-8):
+def predict_ensemble(model_paths, categories, train_loader, val_loader, test_loader, out_dir, eps=1e-8, uq=False):
     for model_path, category in zip(model_paths, categories):
         # Reload the architecture
-        model = torch.hub.load("intel-isl/MiDaS", "DPT_Large")
+        model = torch.hub.load("intel-isl/MiDaS", "DPT_Large") if not uq else MiDaSUQ(backbone="vitl16_384")
         model.to(device)
         # Load the fine-tuned weights
-        model.load_state_dict(torch.load(model_path, map_location=device))
+        model.load_state_dict(torch.load(model_path, map_location=device), strict=False)
         model.eval()
 
         print(f"✅ Loaded fine-tuned MiDaS model for {category}.")
         out_path = os.path.join(out_dir, category)
         with torch.no_grad():
             for loader in [train_loader, val_loader, test_loader]:
-                for images, image_file_names in loader:
+                for images, image_file_names in tqdm(loader, f"Predict with {model_path}"):
                     images = images.to(device)
-                    preds = model(images)
+                    if not uq:
+                        preds = model(images)
+                    else:
+                        preds, pred_logvars = model(images)
+                        pred_logvars_resized = torch.nn.functional.interpolate(
+                            pred_logvars.unsqueeze(1), size=image_size, mode="bicubic", align_corners=False
+                        ).clamp(min=eps)
+
                     preds_resized = torch.nn.functional.interpolate(
                         preds.unsqueeze(1), size=image_size, mode="bicubic", align_corners=False
-                    )
-                    preds_resized = preds_resized.clamp(min=eps) # for numerical stability for RMSE to avoid nan values due to log(0)
+                    ).clamp(min=eps)
+
                     for pred, file_name in zip(preds_resized, image_file_names):
                         storage_path = os.path.join(out_path, f"{file_name[:-8]}_depth")
                         np.save(storage_path, pred.cpu())
+
+                    if uq:
+                        for pred_logvars, file_name in zip(pred_logvars_resized, image_file_names):
+                            storage_path = os.path.join(out_path, f"{file_name[:-8]}_uncertainty")
+                            np.save(storage_path, pred_logvars.cpu())
 
 
 def load_predictions(categories, out_dir, visualize=False):
@@ -132,82 +145,6 @@ def load_predictions(categories, out_dir, visualize=False):
                 visualize_depth_map(selected_file, prediction)
 
 
-
-def predict_ensemble_16_bit(models, categories, loader, out_dir, eps=1e-8):
-    for model, category in zip(models, categories):
-        # Reload the architecture
-        model = torch.hub.load("intel-isl/MiDaS", "DPT_Large")
-        model.to(device)
-        # Load the fine-tuned weights
-        model_path = f"models/model_{category}_finetuned.pth"
-        model.load_state_dict(torch.load(model_path, map_location=device))
-        model.eval()
-        print(f"✅ Loaded fine-tuned MiDaS model for category {category}.")
-        out_path = os.path.join(out_dir, category)
-        os.makedirs(out_path, exist_ok=True)
-
-        with torch.no_grad():
-            for images, image_file_names in loader:
-                images = images.to(device)
-                preds = model(images)
-                preds_resized = torch.nn.functional.interpolate(
-                    preds.unsqueeze(1), size=image_size, mode="bicubic", align_corners=False
-                )
-                preds_resized = preds_resized.clamp(min=eps)
-
-                for pred, file_name in zip(preds_resized, image_file_names):
-                    pred_cpu = pred.squeeze(0).cpu().numpy()
-
-                    # Save original min and max
-                    min_val = pred_cpu.min()
-                    max_val = pred_cpu.max()
-
-                    # Normalize to [0, 1]
-                    pred_norm = (pred_cpu - min_val) / (max_val - min_val + eps)
-
-                    # Scale to uint16
-                    pred_uint16 = (pred_norm * 65535).astype(np.uint16)
-
-                    # Save PNG
-                    storage_path = os.path.join(out_path, f"{file_name[:-8]}_depth.png")
-                    imageio.imwrite(storage_path, pred_uint16)
-
-                    # Save min and max separately
-                    np.save(storage_path.replace('_depth.png', '_minmax.npy'), np.array([min_val, max_val]))
-
-
-def load_predictions_16_bit(categories, out_dir, visualize=True):
-    for category in categories:
-        category_dir = os.path.join(out_dir, category)
-        if not os.path.exists(category_dir):
-            print(f"⚠️ Category folder '{category_dir}' does not exist. Skipping.")
-            continue
-
-        all_files = [f for f in os.listdir(category_dir) if f.endswith('_depth.png')]
-
-        if not all_files:
-            print(f"⚠️ No .png files found in {category_dir}. Skipping.")
-            continue
-
-        if visualize:
-            selected_files = all_files[:3]
-            for selected_file in selected_files:
-                path = os.path.join(category_dir, selected_file)
-                minmax_path = path.replace('_depth.png', '_minmax.npy')
-
-                # Load prediction and min/max
-                pred_uint16 = imageio.imread(path)
-                min_val, max_val = np.load(minmax_path)
-
-                # Recover normalized float
-                pred_norm = pred_uint16.astype(np.float32) / 65535.0
-
-                # Recover original scale (pred_float32 is now the full restored 32-bit depth map 🎯)
-                pred_float32 = pred_norm * (max_val - min_val) + min_val
-
-                visualize_depth_map(selected_file, pred_float32)
-
-
 def visualize_depth_map(file_name, prediction):
     # Convert tensors to numpy for visualization
     pred_np = prediction.squeeze()
@@ -230,14 +167,12 @@ def main(config):
 
     root = "src/data"
     cluster_root = "src/data" # "/cluster/courses/cil/monocular_depth/data/"
-    predictions_predictions_root = "work/scratch/<user>/predicitons_temp"
     predictions_root = os.path.join(root, "predictions_temp")
-    predictions_root = "/work/scratch/<user>/predictions_temp"
 
     train_image_folder = os.path.join(cluster_root, "train")
     test_image_folder = os.path.join(cluster_root, "test")
 
-    os.makedirs(predictions_root, exist_ok=True)
+    os.makedirs(config.predictions_temp_root, exist_ok=True)
     os.makedirs(os.path.join(predictions_root, "base_model"), exist_ok=True)
     os.makedirs(os.path.join(predictions_root, "expert_models"), exist_ok=True)
 
@@ -265,14 +200,14 @@ def main(config):
     
     base_model = config.base_model_path
     expert_models = [f"models/model_{category}_finetuned.pth" for category in categories]
-
     expert_models = [f"models/model_finetuned_epoch_{epoch}.pth" for epoch in [12, 13, 14, 15, 16]]
+    expert_models = [f"models/model_250510_finetuned_{category}.pth" for category in categories]
 
     print("✅ Predict with base uncertainty model on training/validation/test data")
     predict_base_model(base_model, train_dataloader, val_dataloader, test_dataloader, out_dir_base)
 
     print("✅ Predict with expert model ensemble on training/validation/test data.")
-    predict_ensemble(expert_models, categories, train_dataloader, val_dataloader, test_dataloader, out_dir_experts)
+    predict_ensemble(expert_models, categories, train_dataloader, val_dataloader, test_dataloader, out_dir_experts, uq=True)
 
     print("Finished")
 
@@ -286,6 +221,7 @@ if __name__ == "__main__":
     parser.add_argument("--val-list", type=str, required=True, help="Path to sample val list")
     parser.add_argument("--test-list", type=str, default="test_list.txt", help="Path to sample test list")
     parser.add_argument("--batch-size", type=int, default=4)
+    parser.add_argument("--predictions-temp-root", type=str, default="/work/scratch/<user>/predictions_temp")
     config = parser.parse_args()
 
     main(config)

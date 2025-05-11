@@ -32,7 +32,7 @@ def evaluate_model_notebook(model, val_loader, device="cuda", uq=False, epoch=0)
 
             # Forward pass
             if uq:
-                outputs = model(inputs)[:, 0]
+                outputs, _ = model(inputs)
             else:
                 outputs = model(inputs)
             
@@ -109,6 +109,6 @@ def evaluate_model_notebook(model, val_loader, device="cuda", uq=False, epoch=0)
         'Delta3': delta3
     }
     
-    print(f"Scores after epoch {epoch} " + str({k: f"{float(v):.4f}"[-6:] for k, v in metrics.items()}))
+    print(f"Scores after epoch {epoch}: " + str({k: f"{float(v):.4f}"[-6:] for k, v in metrics.items()}))
 
     return metrics
