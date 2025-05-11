@@ -109,6 +109,12 @@ if __name__ == "__main__":
                       help='batch size for dataloaders (default: 1)')
     args.add_argument('-s', '--sharpen', default = False, type = bool,
                       help='should the data be sharpened? (default: False)')
+    args.add_argument('-trainl', '--train_list', default="train_list.txt", type=str, 
+                      help='Path to train list')
+    args.add_argument('-vall', '--val_list', default="val_list.txt", type=str, 
+                      help='Path to val list')
+    args.add_argument('-testl', '--test-list', default="test_list.txt", type=str, 
+                      help='Path to test list')
     config = args.parse_args()
 
     run_id = datetime.now().strftime("%y%m%d_%H%M%S")
@@ -129,7 +135,7 @@ if __name__ == "__main__":
     model.load_state_dict(filtered_state_dict, strict=False)
 
     image_size = [426, 560]
-    train_loader, val_loader, test_loader = get_dataloaders(image_size, config.train_size, config.val_size, config.batch_size, train_list="train_list.txt", val_list="val_list.txt", test_list="test_list.txt", sharpen=config.sharpen)
+    train_loader, val_loader, test_loader = get_dataloaders(image_size, config.train_size, config.val_size, config.batch_size, train_list=config.train_list, val_list=config.val_list, test_list=config.test_list, sharpen=config.sharpen)
 
     # train_loader = get_dataloader(image_size=image_size, mode='train', set_size=config.train_size, batch_size=config.batch_size)
     # val_loader   = get_dataloader(image_size=image_size, mode='val', set_size=config.val_size, batch_size=config.batch_size)
