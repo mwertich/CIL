@@ -200,8 +200,6 @@ def main(config):
     
     base_model = config.base_model_path
     expert_models = [f"models/model_{category}_finetuned.pth" for category in categories]
-    expert_models = [f"models/model_finetuned_epoch_{epoch}.pth" for epoch in [12, 13, 14, 15, 16]]
-    expert_models = [f"models/model_250510_finetuned_{category}.pth" for category in categories]
 
     print("✅ Predict with base uncertainty model on training/validation/test data")
     predict_base_model(base_model, train_dataloader, val_dataloader, test_dataloader, out_dir_base)
