@@ -81,7 +81,7 @@ def finetune_model(model, train_loader, val_loader, out_path, epochs=5, lr=1e-5)
 
         # Save model and batch losses after each epoch
         model_path = f'models/model_{run_id}_finetuned_{epoch}.pth'
-        losses_path = f'models/batch_losses_{run_id}.npy'
+        losses_path = f'models/batch_losses_{run_id}_{epoch}.npy'
         torch.save(model.state_dict(), model_path)
         np.save(losses_path, np.array(batch_losses))
         print(f"💾 Model saved to {model_path}")
@@ -104,6 +104,8 @@ if __name__ == "__main__":
                       help='validation set size (default: 5)')
     args.add_argument('-b', '--batch_size', default=1, type=int,
                       help='batch size for dataloaders (default: 1)')
+    args.add_argument('-s', '--sharpen', default = False, type = bool,
+                      help='should the data be sharpened? (default: False)')
     config = args.parse_args()
 
     run_id = datetime.now().strftime("%y%m%d_%H%M%S")
@@ -124,7 +126,7 @@ if __name__ == "__main__":
     model.load_state_dict(filtered_state_dict, strict=False)
 
     image_size = [426, 560]
-    train_loader, val_loader, test_loader = get_dataloaders(image_size, config.train_size, config.val_size, config.batch_size, train_list="train_list.txt", val_list="val_list.txt", test_list="test_list.txt")
+    train_loader, val_loader, test_loader = get_dataloaders(image_size, config.train_size, config.val_size, config.batch_size, train_list="train_list.txt", val_list="val_list.txt", test_list="test_list.txt", sharpen=config.sharpen)
 
     # train_loader = get_dataloader(image_size=image_size, mode='train', set_size=config.train_size, batch_size=config.batch_size)
     # val_loader   = get_dataloader(image_size=image_size, mode='val', set_size=config.val_size, batch_size=config.batch_size)

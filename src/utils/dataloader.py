@@ -103,7 +103,7 @@ def load_image_depth_pairs(file_path):
 
 
 
-def get_dataloaders(image_size, train_size, val_size, batch_size, train_list="train_list.txt", val_list="val_list.txt", test_list="train_list.txt"):
+def get_dataloaders(image_size, train_size, val_size, batch_size, train_list="train_list.txt", val_list="val_list.txt", test_list="train_list.txt", sharpen = False):
 
     transform = torch.hub.load("intel-isl/MiDaS", "transforms").dpt_transform
     
@@ -132,14 +132,14 @@ def get_dataloaders(image_size, train_size, val_size, batch_size, train_list="tr
 
     train_batch_size, val_batch_size, test_batch_size = batch_size, batch_size, batch_size
 
-    train_dataset = ImageDepthDataset(train_image_folder, train_depth_folder, transform, train_pairs)
+    train_dataset = ImageDepthDataset(train_image_folder, train_depth_folder, transform, train_pairs, sharpen)
     sampler = RandomSampler(train_dataset, generator=g)
     train_loader = DataLoader(train_dataset, batch_size=train_batch_size, sampler=sampler)
 
-    val_dataset = ImageDepthDataset(train_image_folder, train_depth_folder, transform, val_pairs)
+    val_dataset = ImageDepthDataset(train_image_folder, train_depth_folder, transform, val_pairs, sharpen)
     val_loader = DataLoader(val_dataset, batch_size=val_batch_size, shuffle=False)
 
-    test_dataset = TestImageDepthDataset(test_image_folder, test_depth_folder, transform, test_pairs)
+    test_dataset = TestImageDepthDataset(test_image_folder, test_depth_folder, transform, test_pairs, sharpen)
     test_loader = DataLoader(test_dataset, batch_size=test_batch_size, shuffle=False)
     return train_loader, val_loader, test_loader
 
