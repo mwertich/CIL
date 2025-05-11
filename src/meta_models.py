@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torchvision
 
 
@@ -33,7 +34,10 @@ class SimpleUNet(nn.Module):
         return tensor
 
     def forward(self, x):
-        e1 = self.enc1(x)
+        w_pad = (x.shape[-1] % 4) // 2
+        h_pad = (x.shape[-2] % 4) // 2
+        x_pad = F.pad(x, (w_pad, w_pad, h_pad, h_pad), mode='replicate')  # Pad to make it divisible by 4
+        e1 = self.enc1(x_pad)
         p1 = self.pool1(e1)
         e2 = self.enc2(p1)
         p2 = self.pool2(e2)
@@ -41,17 +45,15 @@ class SimpleUNet(nn.Module):
         b = self.bottleneck(p2)
         
         u2 = self.up2(b)
-        e2 = self.center_crop(e2, u2)
         u2 = torch.cat([u2, e2], dim=1)
         d2 = self.dec2(u2)
 
         u1 = self.up1(d2)
-        e1 = self.center_crop(e1, u1)
         u1 = torch.cat([u1, e1], dim=1)
         d1 = self.dec1(u1)
 
         out = self.final(d1)
-        return out
+        return self.center_crop(out, x)
 
 
 class AttentionBlock(nn.Module):
