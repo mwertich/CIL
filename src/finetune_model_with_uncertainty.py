@@ -12,7 +12,7 @@ from utils.loss_funcs import DepthUncertaintyLoss, scale_invariant_rmse
 from utils.utils import torch_seed
 from model import MiDaSUQ
 # from evaluate import evaluate_model
-from evaluate_notebook import evaluate_notebook
+from evaluate_notebook import evaluate_model_notebook
 from predict import predict_model
 import numpy as np
 import cv2
@@ -43,7 +43,7 @@ def finetune_model(model, train_loader, val_loader, out_path, epochs=5, lr=1e-5)
 
     #evaluate initial model
     # evaluate_model(model, val_loader, 0, device)
-    evaluate_notebook(model, val_loader, device, uq=True)
+    evaluate_model_notebook(model, val_loader, device, uq=True)
 
     # Training loop
     for epoch in range(1, epochs + 1):
@@ -80,7 +80,7 @@ def finetune_model(model, train_loader, val_loader, out_path, epochs=5, lr=1e-5)
 
         print(f"✅ Epoch [{epoch}/{epochs}] finished. Loss: {running_loss/len(train_loader):.4f}")
         # evaluate_model(model, val_loader, epoch, device)
-        evaluate_notebook(model, val_loader, device, uq=True)
+        evaluate_model_notebook(model, val_loader, device, uq=True)
 
         # Save model and batch losses after each epoch
         model_path = f'models/model_{run_id}_finetuned_{epoch}.pth'

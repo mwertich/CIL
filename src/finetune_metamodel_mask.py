@@ -446,9 +446,9 @@ if __name__ == "__main__":
     parser.add_argument("--num-epochs", type=int, default=10)
     parser.add_argument("--uncertainty-threshold", type=float, default=0.05, help="Only evaluate loss at uncertain regions (uncertainty > threshold), otherwise base model")
     parser.add_argument("--alpha", type=float, default=1., help="mse loss of masked region")
-    parser.add_argument("--beta", type=float, default=1., help="cross entropy loss of masked region (with best expert per pixel)")
-    parser.add_argument("--gamma", type=float, default=1., help="entropy regularization (punishes flat distributions in terms of post-softmax values)")
-    parser.add_argument("--tau", type=float, default=4., help="temperature of model outputs before softmax (logits)")
+    parser.add_argument("--beta", type=float, default=0., help="cross entropy loss of masked region (with best expert per pixel)")
+    parser.add_argument("--gamma", type=float, default=0., help="entropy regularization (punishes flat distributions in terms of post-softmax values)")
+    parser.add_argument("--tau", type=float, default=10., help="temperature of model outputs before softmax (logits)")
     config = parser.parse_args()
 
     run_id = datetime.now().strftime("%y%m%d_%H%M%S")

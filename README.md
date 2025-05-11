@@ -40,7 +40,7 @@ The five expert models are:
     model_home_office_finetuned.pth
     model_bathroom_finetuned.pth
 
-To obtain all predicitons for the small training/validation list (you can add more images to them) and all test data (stored in src/predictions_temp), call:
+To obtain all predictions for the small training/validation list (you can add more images to them) and all test data (stored in src/predictions_temp), call:
 
     python src/predict_base_and_expert_models.py --base-model-path models/base_model_with_uncertainty_finetuned_epoch_10.pth --train-list train_list_small.txt --val-list val_list_small.txt
     --predictions-temp-root /work/scratch/<user>/predictions_temp
