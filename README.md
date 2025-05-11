@@ -43,6 +43,9 @@ The five expert models are:
 To obtain all predicitons for the small training/validation list (you can add more images to them) and all test data (stored in src/predictions_temp), call:
 
     python src/predict_base_and_expert_models.py --base-model-path models/base_model_with_uncertainty_finetuned_epoch_10.pth --train-list train_list_small.txt --val-list val_list_small.txt
+    --predictions-temp-root /work/scratch/<user>/predictions_temp
+
+You need to specify your ethz username <user> on the cluster so that the data gets stored at scratch on the cluster (we have only 100 GB of space per person, so do not predict on more than 5k images for now or store otherwise locally)
 
 
 4. Learn Metamodel by loading all predictions/uncertainties and utilizing Mixture of Experts, Uncertainty Masking, and Inverse Uncertainty Sampling
