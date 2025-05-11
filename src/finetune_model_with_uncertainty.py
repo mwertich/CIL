@@ -26,6 +26,9 @@ import random
 from pathlib import Path
 from datetime import datetime
 
+# Set a fixed random seed for reproducibility
+torch.manual_seed(0)
+
 
 # Main training function
 def finetune_model(model, train_loader, val_loader, out_path, epochs=5, lr=1e-5):
