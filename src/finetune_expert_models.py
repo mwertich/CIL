@@ -14,9 +14,12 @@ from utils.loss_funcs import scale_invariant_rmse
 from utils.dataloader import get_dataloader
 from model import MiDaSUQ
 from utils.visualization import denormalize_image
+from evaluate_notebook import evaluate_model_notebook
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 image_size = [426, 560]
+# Set a fixed random seed for reproducibility
+torch.manual_seed(0)
 
 
 def evaluate_model(model, val_loader, epoch=0):
@@ -56,7 +59,7 @@ def finetune_model(model, train_loader, val_loader, out_path, epochs=5, lr=1e-5,
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 
     #evaluate initial model
-    #evaluate_model(model, val_loader, 0)
+    evaluate_model_notebook(model, val_loader, device)
 
     # Training loop
     for epoch in range(1, epochs + 1):
@@ -85,7 +88,7 @@ def finetune_model(model, train_loader, val_loader, out_path, epochs=5, lr=1e-5,
             running_loss += loss.item()
 
         print(f"✅ Epoch [{epoch}/{epochs}] finished. Loss: {running_loss/len(train_loader):.4f}")
-        evaluate_model(model, val_loader, epoch)
+        evaluate_model_notebook(model, val_loader, device, epoch=epoch)
         # Save model after each epoch
         
         model_path = f"models/model_finetuned_epoch_{epoch}.pth"
@@ -204,19 +207,17 @@ def main(config):
         val_list = f"category_lists/{category}_val_list.txt"
         test_list = f"category_lists/{category}_test_list.txt"
     else:
-        train_list = f"train_list.txt"
-        val_list = f"val_list.txt"
-        test_list = f"test_list.txt"
+        train_list = config.train_list
+        val_list = config.val_list
+        test_list = config.test_list
 
     train_loader = get_dataloader(image_size=image_size, mode='train', set_size=config.train_size, batch_size=config.batch_size, train_list=train_list, val_list=val_list, test_list=test_list, sharpen=False) #19176/23971
     val_loader   = get_dataloader(image_size=image_size, mode='val', set_size=config.val_size, batch_size=config.batch_size, train_list=train_list, val_list=val_list, test_list=test_list, sharpen=False) #4795/23971
     test_loader  = get_dataloader(image_size=image_size, mode='test', set_size=None, batch_size=config.batch_size, train_list=train_list, val_list=val_list, test_list=test_list, sharpen=False) #650/650
 
-    if not config.category and config.pretrained:
+    if config.pretrained:
         model_path = config.pretrained
-        print(f"Load model from {model_path}")
-    elif config.category:
-        model_path = f"models/model_{category}_finetuned.pth"
+        print(f"Load model from {model_path}") #models/model_{category}_finetuned.pth"
 
     # Reload the architecture
     if config.uq:
@@ -232,12 +233,11 @@ def main(config):
     model.to(device)
     print("✅ Loaded fine-tuned MiDaS model.")
 
-    #finetune_model(model, train_loader, val_loader, out_path=model_path, epochs=config.epochs, save_model=True)
+    finetune_model(model, train_loader, val_loader, out_path=f"models/model_{run_id}_finetuned.pth", epochs=config.epochs, save_model=True)
 
     model.eval()
     print("✅ Evaluate fine-tuned MiDaS model.")
-    evaluate_model(model, val_loader)
-    evaluate_model_notebook(model, val_loader, device)
+    evaluate_model_notebook(model, val_loader, device, epoch=config.epochs)
 
     print("✅ Predict with fine-tuned MiDaS model.")
     #visualize_prediction_with_ground_truth(model, val_loader, num_images=10)
@@ -252,6 +252,11 @@ if __name__ == "__main__":
     args = argparse.ArgumentParser(description="Fine-tune MiDaS model for indoor depth estimation.")
     args.add_argument("--pretrained", type=str, default=None, help="Path to model. If left out, a new model is trained")
     args.add_argument("--category", type=str, help="Category (e.g., kitchen, living_room, etc.)")
+    
+    args.add_argument('-trainl', '--train_list', default="train_list.txt", type=str, help='Path to train list')
+    args.add_argument('-vall', '--val_list', default="val_list.txt", type=str, help='Path to val list')
+    args.add_argument('-testl', '--test-list', default="test_list.txt", type=str, help='Path to test list')
+
     args.add_argument("--train-size", type=int, default=None, help="Subset size of training data")
     args.add_argument("--val-size", type=int, default=None, help="Subset size of validaton data")
     args.add_argument("--epochs", type=int, default=10, help="Number of training epochs")

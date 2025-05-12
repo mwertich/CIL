@@ -38,3 +38,52 @@ def scale_invariant_rmse(predicted, ground_truth):
     loss = torch.sqrt(torch.mean(corrected_diff ** 2, dim=1))
 
     return loss.mean() # scalar
+
+
+def mae_loss(predicted, ground_truth):
+    """
+    Mean Absolute Error (MAE)
+    predicted: Tensor of shape (B, 1, H, W)
+    ground_truth: Tensor of shape (B, 1, H, W)
+    Returns: scalar tensor
+    """
+    return torch.mean(torch.abs(predicted - ground_truth))
+
+
+def rmse_loss(predicted, ground_truth):
+    """
+    Root Mean Squared Error (RMSE)
+    """
+    return torch.sqrt(torch.mean((predicted - ground_truth) ** 2))
+
+
+def rel_loss(predicted, ground_truth, epsilon=1e-6):
+    """
+    Mean Relative Error (REL)
+    Avoids division by zero using epsilon.
+    """
+    return torch.mean(torch.abs(predicted - ground_truth) / (ground_truth + epsilon))
+
+
+def delta_accuracy(predicted, ground_truth, threshold):
+    """
+    Computes the percentage of pixels where max(pred/gt, gt/pred) < threshold
+    """
+    epsilon = 1e-6
+    max_ratio = torch.max(
+        predicted / (ground_truth + epsilon),
+        ground_truth / (predicted + epsilon)
+    )
+    return torch.mean((max_ratio < threshold).float())
+
+
+def delta1_accuracy(predicted, ground_truth):
+    return delta_accuracy(predicted, ground_truth, 1.25)
+
+
+def delta2_accuracy(predicted, ground_truth):
+    return delta_accuracy(predicted, ground_truth, 1.25 ** 2)
+
+
+def delta3_accuracy(predicted, ground_truth):
+    return delta_accuracy(predicted, ground_truth, 1.25 ** 3)

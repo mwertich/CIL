@@ -5,7 +5,7 @@ import torch
 
 
 
-def evaluate_notebook(model, val_loader, device="cuda", uq=False):
+def evaluate_model_notebook(model, val_loader, device="cuda", uq=False, epoch=0):
     """Evaluate the model and compute metrics on validation set"""
     model.eval()
     
@@ -32,7 +32,7 @@ def evaluate_notebook(model, val_loader, device="cuda", uq=False):
 
             # Forward pass
             if uq:
-                outputs = model(inputs)[:, 0]
+                outputs, _ = model(inputs)
             else:
                 outputs = model(inputs)
             
@@ -109,6 +109,6 @@ def evaluate_notebook(model, val_loader, device="cuda", uq=False):
         'Delta3': delta3
     }
     
-    print(metrics)
+    print(f"Scores after epoch {epoch}: " + str({k: f"{float(v):.4f}"[-6:] for k, v in metrics.items()}))
 
     return metrics
