@@ -1,5 +1,6 @@
+# reproducibility
 from utils.utils import torch_seed
-torch_seed()
+torch_seed(seed=0)
 
 import os
 import sys
@@ -25,9 +26,6 @@ import random
 # for logging
 from pathlib import Path
 from datetime import datetime
-
-# Set a fixed random seed for reproducibility
-torch.manual_seed(0)
 
 
 # Main training function
