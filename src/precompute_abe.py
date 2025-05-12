@@ -249,7 +249,7 @@ def main(config):
 
     root = "src/data"
     cluster_root = "src/data" # "/cluster/courses/cil/monocular_depth/data/"
-    predictions_root = "/work/scratch/dknorre/predictions_abe"
+    predictions_root = "/work/scratch/dknorre/predictions_temp"
 
     train_image_folder = os.path.join(cluster_root, "train")
     test_image_folder = os.path.join(cluster_root, "test")
@@ -302,7 +302,7 @@ def main(config):
     
 
     print("✅ Predict with base uncertainty model on training/validation/test data")
-    # predict_model(base_model, train_dataloader, val_dataloader, test_dataloader, out_dir_base)
+    predict_model(base_model, train_dataloader, val_dataloader, test_dataloader, out_dir_base)
 
     for i, expert in enumerate(expert_models):
         print(f"✅ Predict with augmented expert {i} on training/validation/test data")
