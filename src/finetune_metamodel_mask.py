@@ -17,6 +17,7 @@ from meta_models import SimpleUNet, AttentionUNet
 from utils.expert_dataloader import ExpertTrainDataset, ExpertTestDataset
 from utils.loss_funcs import scale_invariant_rmse, mae_loss, rmse_loss, rel_loss, delta1_accuracy, delta2_accuracy, delta3_accuracy
 from evaluate_notebook import evaluate_model_notebook
+from matplotlib.patches import Patch
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 image_size = [426, 560]
@@ -87,10 +88,11 @@ def train_metamodel(model, train_dataloader, val_dataloader, categories, num_epo
 
             images_with_uncertainty = torch.cat((images, uncertainty_base_model), dim=1)
             logits = model(images_with_uncertainty) # (B, num_experts, H, W)
+
+            logits = F.interpolate(logits, size=expert_predictions.shape[-2:], mode='bilinear', align_corners=False)
             if inv_uq_sampling:
                 logits = logits / uncertainty_predictions
             logits = logits / tau
-            logits = F.interpolate(logits, size=expert_predictions.shape[-2:], mode='bilinear', align_corners=False)
 
             # Prepare uncertainty and resize to match expert resolution
             #uncertainty_min, uncertainty_max, uncertainty_mean, uncertainty_std = torch.min(uncertainty), torch.max(uncertainty), torch.mean(uncertainty), torch.std(uncertainty)
@@ -167,11 +169,14 @@ def evaluate_metamodel(model, val_dataloader, epoch, categories, threshold=0.03,
             images_with_uncertainty = torch.cat((images, uncertainty_base_model), dim=1)
 
             logits = model(images_with_uncertainty) # (B, num_experts, H, W)
+
+            
+            logits = F.interpolate(logits, size=expert_predictions.shape[-2:], mode='bilinear', align_corners=False)
+
             if inv_uq_sampling:
                 logits = logits / uncertainty_predictions
             logits = logits / tau
 
-            logits = F.interpolate(logits, size=expert_predictions.shape[-2:], mode='bilinear', align_corners=False)
             # Softmax over experts
             probs = F.softmax(logits, dim=1)  # (B, num_experts, H, W)
 
@@ -197,6 +202,21 @@ def evaluate_metamodel(model, val_dataloader, epoch, categories, threshold=0.03,
             soft_pred = torch.sum(probs * expert_predictions, dim=1)  # (B, H, W)
             final_prediction[:, 0][uncertainty_mask] = soft_pred[uncertainty_mask]
 
+            #!!!!!!!
+            #probs_without_model = F.softmax(1 / uncertainty_predictions, dim=1)
+            #final_prediction = torch.sum(probs_without_model * expert_predictions, dim=1, keepdim=True)
+
+            #B, H, W = best_expert_indices.shape
+            #num_classes = len(categories) + 1  # 6
+            # Preallocate the one-hot tensor on the same device
+            #one_hot = torch.zeros((B, num_classes, H, W), device=best_expert_indices.device)
+            # Use scatter to set 1s in the correct places
+            #one_hot.scatter_(1, best_expert_indices.unsqueeze(1), 1.0)
+            #final_prediction = torch.sum(one_hot * expert_predictions, dim=1, keepdim=True)
+
+            #final_prediction[:, 0] = base_model_prediction
+
+            #!!!!!
 
             total_sirmse_loss += scale_invariant_rmse(final_prediction, depths).item()
             total_mae_loss += mae_loss(final_prediction, depths).item()
@@ -244,10 +264,10 @@ def predict_metamodel(model, test_dataloader, threshold=0.03, tau=1., inv_uq_sam
 
             images_with_uncertainty = torch.cat((images, uncertainty_base_model), dim=1)
             logits = model(images_with_uncertainty) # (B, num_experts, H, W)
+            logits = F.interpolate(logits, size=expert_predictions.shape[-2:], mode='bilinear', align_corners=False)
             if inv_uq_sampling:
                 logits = logits / uncertainty_predictions
             logits = logits / tau
-            logits = F.interpolate(logits, size=expert_predictions.shape[-2:], mode='bilinear', align_corners=False)
             # Softmax over experts
             probs = F.softmax(logits, dim=1)  # (B, num_experts, H, W)
 
@@ -303,6 +323,8 @@ def visualize_batch(images, pred_depths, depths, probs_batch, predicted_indices_
         depth_gt = depth[0].cpu().numpy()
         uncertainty_base_model = uncertainty_predictions[0].cpu().numpy()
 
+        prediction_error = np.abs(pred_depth - depth_gt)
+
         # Predicted expert map
         predicted_expert_map = predicted_indices.cpu().numpy()  # (H, W)
         mask = mask.cpu()
@@ -314,17 +336,16 @@ def visualize_batch(images, pred_depths, depths, probs_batch, predicted_indices_
         
         # Best expert map (oracle)
         best_map = best_expert_indices.cpu().numpy()  # (H, W)
-
         experts = ["base"] + categories 
 
         # Define a color map: one color per expert
         colors = np.array([
-            [255, 0, 0],      # Red
-            [0, 255, 0],      # Green
+            [0, 255, 0],    # Green
             [0, 0, 255],      # Blue
             [255, 255, 0],    # Yellow
             [255, 0, 255],    # Magenta
-            [0, 255, 255],    # Cyan
+            [245, 130, 48],   # Orange
+            [145, 30, 180],   # Purple
             [0, 0, 0],    # Black
         ]) / 255.0  # normalize to [0,1]
 
@@ -347,13 +368,15 @@ def visualize_batch(images, pred_depths, depths, probs_batch, predicted_indices_
         ax1[2].set_title('Ground Truth Depth')
 
         ax1[3].imshow(expert_color_map)
-        ax1[3].set_title('Chosen Expert Map')
+        ax1[3].set_title('Expert With Highest Percentage')
 
         ax1[4].imshow(best_color_map)
-        ax1[4].set_title('Best Expert (Oracle) Map')
+        ax1[4].set_title('Theoretical Best Expert (Oracle) Map')
 
-        ax1[5].imshow(uncertainty_base_model, cmap='viridis')
-        ax1[5].set_title('Uncertainty Map')
+        prediction_error_color_map = np.expand_dims(prediction_error / np.max(prediction_error), axis=0).transpose(1, 2, 0) * np.array([255, 0, 0]) / 255.0
+        ax1[5].imshow(prediction_error_color_map)
+        ax1[5].set_title('Absolute Prediction Error')
+        ax1[5].text(0.5, -0.1, f'Mean: {np.mean(prediction_error):.3f}, Std: {np.std(prediction_error):.3f}, Max: {np.max(prediction_error):.3f}', transform=ax1[5].transAxes,ha='center', va='top', fontsize=11)
 
         for i in range(6):
             ax1[i].axis('off')
@@ -362,22 +385,32 @@ def visualize_batch(images, pred_depths, depths, probs_batch, predicted_indices_
             expanded_mask = mask.cpu().numpy()[np.newaxis, :, :]
             masked_probs = probs[i].cpu().numpy() * expanded_mask # (H, W), values in [0, 1]
             valid_values = masked_probs[expanded_mask]
-            color = colors[i]              # (3,), RGB in [0, 1]
+            masked_probs /= np.max(masked_probs)
+            color = np.array([0, 255, 255]) / 255.0             # (3,), RGB in [0, 1]
             
             # Expand prob to (H, W, 1) to broadcast with (3,) color
             rgb_image = masked_probs.transpose(1, 2, 0) * color  # (H, W, 3)
             
             ax2[i].imshow(rgb_image)
             ax2[i].set_title(f'Prob {experts[i]}')
-            ax2[i].text(0.5, -0.1, f'Mean: {np.mean(valid_values):.4f}, Std: {np.std(valid_values):.4f}, Max: {np.max(valid_values):.4f}, Min: {np.min(valid_values):.4f}', transform=ax2[i].transAxes,ha='center', va='top', fontsize=10)
+            ax2[i].text(0.5, -0.1, f'Mean: {np.mean(valid_values):.3f}, Std: {np.std(valid_values):.3f}, Max: {np.max(valid_values):.3f}, Min: {np.min(valid_values):.3f}', transform=ax2[i].transAxes,ha='center', va='top', fontsize=11)
             ax2[i].axis('off')
 
             
         for i in range(num_models):
             ax3[i].imshow(uncertainty_predictions[i].cpu().numpy(), cmap='viridis')
-            ax3[i].set_title(f'Uncertainty {experts[i]}')
+            ax3[i].set_title(f'Uncertainty {experts[i]} model ')
             ax3[i].axis('off')
 
+
+        # Create legend handles
+        legend_elements = [
+            Patch(facecolor=colors[i], label=experts[i])
+            for i in range(len(experts))
+        ]
+
+        # Add legend to the figure
+        fig.legend(handles=legend_elements, loc='lower center', ncol=len(experts), fontsize=12, frameon=False)
 
         plt.tight_layout()
         
@@ -420,7 +453,7 @@ def main(config):
     val_dataloader = DataLoader(val_dataset, batch_size=config.batch_size, shuffle=True)
     test_dataloader = DataLoader(test_dataset, batch_size=config.batch_size, shuffle=True)
     
-    model = AttentionUNet(in_channels=4, num_experts=num_experts)
+    model = SimpleUNet(in_channels=4, num_experts=num_experts)
     uncertainty_threshold = config.uncertainty_threshold
     tau=config.tau
 

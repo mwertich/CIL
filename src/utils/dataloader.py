@@ -97,8 +97,9 @@ def load_image_depth_pairs(file_path):
     with open(file_path, 'r') as f:
         for line in f:
             parts = line.strip().split()
-            image_file, depth_file = parts
-            pairs.append((image_file, depth_file))
+            if len(parts):
+                image_file, depth_file = parts
+                pairs.append((image_file, depth_file))
     return pairs
 
 
@@ -144,10 +145,9 @@ def get_dataloaders(image_size, train_size, val_size, batch_size, train_list="tr
     return train_loader, val_loader, test_loader
 
 
-def get_dataloader(image_size, mode, set_size, batch_size,  train_list="train_list.txt", val_list="val_list.txt", test_list="test_list.txt", sharpen=False):
+def get_dataloader(image_size, mode, set_size, batch_size,  train_list="train_list.txt", val_list="val_list.txt", test_list="test_list.txt", root="/cluster/courses/cil/monocular_depth/data", sharpen=False):
     transform = torch.hub.load("intel-isl/MiDaS", "transforms").dpt_transform # preprocessing (normalization etc.)
-    
-    root = "src/data"
+
     image_folder = os.path.join(root, "train") if mode in ['train', 'val'] else os.path.join(root, "test")
     depth_folder = image_folder if mode in ['train', 'val'] else os.path.join(root, "predictions")
 

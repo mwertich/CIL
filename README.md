@@ -34,11 +34,11 @@ The base model is:
 
 The five expert models are:
 
-    model_living_room_finetuned.pth
-    model_kitchen_finetuned.pth
-    model_dorm_room_finetuned.pth
-    model_home_office_finetuned.pth
-    model_bathroom_finetuned.pth
+    expert_model_living_room_finetuned.pth
+    expert_model_kitchen_finetuned.pth
+    expert_model_dorm_room_finetuned.pth
+    expert_model_home_office_finetuned.pth
+    expert_model_bathroom_finetuned.pth
 
 To obtain all predictions for the small training/validation list (you can add more images to them) and all test data (stored in src/predictions_temp), call:
 
