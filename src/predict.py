@@ -8,7 +8,7 @@ import torch
 import numpy as np
 
 
-def predict_model(model, test_loader, image_size, device):
+def predict_model(model, test_loader, image_size, device, eps=1e-8):
     model.eval()
     with torch.no_grad():
         for images, out_paths in test_loader:
@@ -18,10 +18,10 @@ def predict_model(model, test_loader, image_size, device):
             preds_resized = torch.nn.functional.interpolate(
                 preds.unsqueeze(1), size=image_size, mode="bicubic", align_corners=False
             )
-            eps = 1e-8
             preds_resized = preds_resized.clamp(min=eps) # for numerical stability for RMSE to avoid nan values due to log(0)
             for pred, out_path in zip(preds_resized, out_paths):
-                np.save(out_path, pred.cpu())
+                file_name = out_path.split("/")[-1]
+                np.save(f"src/data/predictions/{file_name}", pred.cpu())
 
 
 if __name__ == "__main__":
