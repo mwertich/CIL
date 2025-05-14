@@ -34,7 +34,7 @@ def evaluate_model(model, val_loader, epoch=0):
             if config.uq:
                 preds = preds[0]
             preds_resized = torch.nn.functional.interpolate(
-                preds.unsqueeze(1), size=depths.shape[-2:], mode="bicubic", align_corners=False
+                preds.unsqueeze(1), size=depths.shape[-2:], mode="bilinear", align_corners=False
             )
 
             eps = 1e-8
@@ -55,7 +55,7 @@ def finetune_model(model, train_loader, val_loader, out_path, epochs=5, lr=1e-5,
     model.train()  # set to train mode
 
     # Define loss and optimizer
-    criterion = nn.L1Loss()  # or nn.MSELoss()
+    criterion = nn.MSELoss()  # or nn.MSELoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 
     #evaluate initial model
@@ -92,8 +92,8 @@ def finetune_model(model, train_loader, val_loader, out_path, epochs=5, lr=1e-5,
         # Save model after each epoch
         
         model_path = f"models/model_finetuned_epoch_{epoch}.pth"
-        #torch.save(model.state_dict(), model_path)
-        #print(f"💾 Model saved to models/{model_path}")
+        torch.save(model.state_dict(), model_path)
+        print(f"💾 Model saved to models/{model_path}")
 
     # Save fine-tuned model
     if save_model:
@@ -111,7 +111,7 @@ def predict_model(model, test_loader, eps = 1e-8):
             if config.uq:
                 preds = preds[0]
             preds_resized = torch.nn.functional.interpolate(
-                preds.unsqueeze(1), size=image_size, mode="bicubic", align_corners=False
+                preds.unsqueeze(1), size=image_size, mode="bilinear", align_corners=False
             )
             preds_resized = preds_resized.clamp(min=eps) # for numerical stability for RMSE to avoid nan values due to log(0)
             for pred, depth_file_name in zip(preds_resized, depth_file_names):
@@ -165,7 +165,7 @@ def visualize_prediction_with_ground_truth(model, loader, num_images=5):
             if config.uq:
                 pred = pred[0]
             pred_resized = torch.nn.functional.interpolate(
-                pred.unsqueeze(1), size=depths.shape[-2:], mode="bicubic", align_corners=False
+                pred.unsqueeze(1), size=depths.shape[-2:], mode="bilinear", align_corners=False
             )
             for image, depth, prediction in zip(images, depths, pred_resized): 
                 images_shown += 1
@@ -186,7 +186,7 @@ def visualize_prediction_without_ground_truth(model, test_loader, num_images=5):
             if config.uq:
                 pred = pred[0]
             pred_resized = torch.nn.functional.interpolate(
-                pred.unsqueeze(1), size=image_size, mode="bicubic", align_corners=False
+                pred.unsqueeze(1), size=image_size, mode="bilinear", align_corners=False
             )
             for image, prediction, out_path in zip(images, pred_resized, out_paths):
                 images_shown += 1
@@ -233,7 +233,7 @@ def main(config):
     model.to(device)
     print("✅ Loaded fine-tuned MiDaS model.")
 
-    finetune_model(model, train_loader, val_loader, out_path=f"models/model_{run_id}_finetuned.pth", epochs=config.epochs, save_model=True)
+    #finetune_model(model, train_loader, val_loader, out_path=f"models/model_{run_id}_finetuned.pth", epochs=config.epochs, save_model=True)
 
     model.eval()
     print("✅ Evaluate fine-tuned MiDaS model.")
@@ -242,7 +242,7 @@ def main(config):
     print("✅ Predict with fine-tuned MiDaS model.")
     #visualize_prediction_with_ground_truth(model, val_loader, num_images=10)
     #visualize_prediction_without_ground_truth(model, test_loader, num_images=10)
-    #predict_model(model, test_loader)
+    predict_model(model, test_loader)
     print("Finished")
 
 
@@ -250,11 +250,11 @@ def main(config):
 
 if __name__ == "__main__":
     args = argparse.ArgumentParser(description="Fine-tune MiDaS model for indoor depth estimation.")
-    args.add_argument("--pretrained", type=str, default=None, help="Path to model. If left out, a new model is trained")
+    args.add_argument("-p", "--pretrained", type=str, default=None, help="Path to model. If left out, a new model is trained")
     args.add_argument("--category", type=str, help="Category (e.g., kitchen, living_room, etc.)")
     
-    args.add_argument('-trainl', '--train_list', default="train_list.txt", type=str, help='Path to train list')
-    args.add_argument('-vall', '--val_list', default="val_list.txt", type=str, help='Path to val list')
+    args.add_argument('-trainl', '--train_list', default="train_list_new.txt", type=str, help='Path to train list')
+    args.add_argument('-vall', '--val_list', default="val_list_new.txt", type=str, help='Path to val list')
     args.add_argument('-testl', '--test-list', default="test_list.txt", type=str, help='Path to test list')
 
     args.add_argument("--train-size", type=int, default=None, help="Subset size of training data")
