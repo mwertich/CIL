@@ -5,6 +5,7 @@ import argparse
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
+from utils.dataloader import get_dataloader
 import numpy as np
 import cv2
 from tqdm import tqdm
@@ -14,6 +15,7 @@ import torchvision.transforms.functional as TF
 import imageio.v2 as imageio
 
 from model import MiDaSUQ
+from evaluate_notebook import evaluate_model_notebook
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 image_size = [426, 560]
@@ -54,8 +56,10 @@ class AugmentationBasedExpert(nn.Module):
         image = self.transformation(image)
         if self.uq:
             depth, uncertainty = self.model(image)
+            uncertainty = self.inv_transformation(uncertainty)
         else:
             depth = self.model(image)
+
         depth = self.inv_transformation(depth)
         
         if self.uq:
@@ -306,11 +310,12 @@ def main(config):
 
     for i, expert in enumerate(expert_models):
         print(f"✅ Predict with augmented expert {i} on training/validation/test data")
+        # evaluate_model_notebook(expert, get_dataloader(None, mode="val", batch_size=config.batch_size, set_size=1000), uq=True)
         expert_dir =  os.path.join(out_dir_experts, f"expert_{i}")
         os.makedirs(expert_dir, exist_ok=True)
         predict_model(expert, train_dataloader, val_dataloader, test_dataloader, expert_dir)
 
-    print("Finished")
+    print("✅ Finished")
 
 
 
