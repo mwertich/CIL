@@ -113,8 +113,6 @@ if __name__ == "__main__":
                       help='Path to val list')
     args.add_argument('-testl', '--test-list', default="test_list.txt", type=str, 
                       help='Path to test list')
-    args.add_argument('-testl', '--test-list', default="test_list.txt", type=str, 
-                      help='Path to test list')
     args.add_argument('-f', '--filter_head', default=True, type=bool, 
                       help='Determine whether the last head in MiDaS should be filtered')
     config = args.parse_args()
@@ -134,7 +132,7 @@ if __name__ == "__main__":
         k: v for k, v in state_dict.items()
         if "scratch.output_conv.4." not in k  # Exclude final conv layer
     }
-    model.load_state_dict(filtered_state_dict if config.filtered_head else state_dict, strict=False)
+    model.load_state_dict(filtered_state_dict if config.filter_head else state_dict, strict=False)
 
     image_size = [426, 560]
     train_loader, val_loader, test_loader = get_dataloaders(image_size, config.train_size, config.val_size, config.batch_size, train_list=config.train_list, val_list=config.val_list, test_list=config.test_list, sharpen=config.sharpen)
