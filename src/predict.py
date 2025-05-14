@@ -15,9 +15,11 @@ def predict_model(model, test_loader, image_size, device, eps=1e-8):
             images = images.to(device)
 
             preds, _ = model(images)
-            preds_resized = torch.nn.functional.interpolate(
-                preds.unsqueeze(1), size=image_size, mode="bicubic", align_corners=False
-            )
+            preds_resized = torch.nn.functional.interpolate(preds.unsqueeze(1),
+                                                            size=image_size,
+                                                            mode="bilinear",
+                                                            align_corners=False
+                                                           )
             preds_resized = preds_resized.clamp(min=eps) # for numerical stability for RMSE to avoid nan values due to log(0)
             for pred, out_path in zip(preds_resized, out_paths):
                 file_name = out_path.split("/")[-1]
@@ -49,3 +51,4 @@ if __name__ == "__main__":
     print("✅ Loaded fine-tuned MiDaS model.")
     
     predict_model(model, test_loader, image_size, device)
+    print("✅ Predicted depth for test data using fine-tuned MiDaS model.")
