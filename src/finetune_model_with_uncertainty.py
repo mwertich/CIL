@@ -29,7 +29,7 @@ from datetime import datetime
 
 
 # Main training function
-def finetune_model(model, train_loader, val_loader, out_path, epochs=5, lr=1e-5):
+def finetune_model(model, train_loader, val_loader, out_path, epochs=5, lr=1e-5, save_every_epoch=True):
 
     model.to(device)
     model.train()  # set to train mode
@@ -78,15 +78,17 @@ def finetune_model(model, train_loader, val_loader, out_path, epochs=5, lr=1e-5)
 
         print(f"✅ Epoch [{epoch}/{epochs}] finished. Loss: {running_loss/len(train_loader):.4f}")
         # evaluate_model(model, val_loader, epoch, device)
-        evaluate_model_notebook(model, val_loader, device, uq=True)
+        evaluate_model_notebook(model, val_loader, device, uq=True, epoch=epoch)
 
-        # Save model and batch losses after each epoch
-        model_path = f'models/model_{run_id}_finetuned_{epoch}.pth'
+        # Save batch losses after each epoch
         losses_path = f'models/batch_losses_{run_id}_{epoch}.npy'
-        torch.save(model.state_dict(), model_path)
         np.save(losses_path, np.array(batch_losses))
-        print(f"💾 Model saved to {model_path}")
         print(f"💾 Batch losses saved to {losses_path}")
+        if save_every_epoch:
+            # Save model after each epoch
+            model_path = f'models/model_{run_id}_finetuned_{epoch}.pth'
+            torch.save(model.state_dict(), model_path)
+            print(f"💾 Model saved to {model_path}")
 
     # Save fine-tuned model
     torch.save(model.state_dict(), out_path)
@@ -99,22 +101,26 @@ if __name__ == "__main__":
                       help='pretrained model path (default: ../.cache/torch/hub/checkpoints/dpt_large_384.pt)')
     args.add_argument('-e', '--epochs', default=1, type=int,
                       help='number of epochs for finetuning (default: 1)')
-    args.add_argument('-t', '--train_size', default=100, type=int,
-                      help='training set size (default: 100)')
-    args.add_argument('-v', '--val_size', default=5, type=int,
-                      help='validation set size (default: 5)')
+    args.add_argument('-t', '--train_size', default=0, type=int,
+                      help='training set size (default: 0 = all)')
+    args.add_argument('-v', '--val_size', default=0, type=int,
+                      help='validation set size (default: 0 = all)')
     args.add_argument('-b', '--batch_size', default=1, type=int,
                       help='batch size for dataloaders (default: 1)')
+    args.add_argument('-l', '--learning_rate', default=1e-5, type=float,
+                      help='batch size for dataloaders (default: 1e-5)')
     args.add_argument('-s', '--sharpen', default = False, type = bool,
                       help='should the data be sharpened? (default: False)')
     args.add_argument('-trainl', '--train_list', default="train_list.txt", type=str, 
-                      help='Path to train list')
+                      help='Path to train list (default: train_list.txt)')
     args.add_argument('-vall', '--val_list', default="val_list.txt", type=str, 
-                      help='Path to val list')
+                      help='Path to val list (default: val_list.txt)')
     args.add_argument('-testl', '--test-list', default="test_list.txt", type=str, 
-                      help='Path to test list')
+                      help='Path to test list (default: test_list.txt)')
     args.add_argument('-f', '--filter_head', default=True, type=bool, 
-                      help='Determine whether the last head in MiDaS should be filtered')
+                      help='Determine whether the last head in MiDaS should be filtered (default: True)')
+    args.add_argument('-save', '--save_every_epoch', default=True, type=bool, 
+                      help='Determine whether each epoch should be saved (default: True)')
     config = args.parse_args()
 
     run_id = datetime.now().strftime("%y%m%d_%H%M%S")
@@ -142,7 +148,7 @@ if __name__ == "__main__":
     # test_loader  = get_dataloader(image_size=image_size, mode='test', set_size=None, batch_size=config.batch_size)
 
     # num_epochs = 1
-    finetune_model(model, train_loader, val_loader, out_path=f"models/model_{run_id}_finetuned.pth", epochs=config.epochs)
+    finetune_model(model, train_loader, val_loader, out_path=f"models/model_{run_id}_finetuned.pth", epochs=config.epochs, lr=config.learning_rate, save_every_epoch=config.save_every_epoch)
 
     # Reload the architecture
     # model = torch.hub.load("intel-isl/MiDaS", "DPT_Large")
