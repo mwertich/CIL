@@ -1,6 +1,7 @@
 
-import torch.nn as nn
 import torch
+import torch.nn as nn
+import torch.nn.functional as F
 
 
 class DepthUncertaintyLoss(nn.Module):
@@ -14,6 +15,36 @@ class DepthUncertaintyLoss(nn.Module):
         if logvar:
             var_pred = torch.exp(var_pred).clamp(min=self.eps)
         return self.gaussian_nll(depth_pred, depth_gt, var_pred) 
+
+
+class SobelEdgeLoss(nn.Module):
+    def __init__(self):
+        super(SobelEdgeLoss, self).__init__()
+        # Define Sobel kernels as buffers (so they move with the model to GPU/CPU)
+        sobel_x = torch.tensor([[1, 0, -1],
+                                [2, 0, -2],
+                                [1, 0, -1]], dtype=torch.float32)
+        sobel_y = torch.tensor([[1, 2, 1],
+                                [0, 0, 0],
+                                [-1, -2, -1]], dtype=torch.float32)
+        # Reshape to [out_channels, in_channels, kH, kW] for conv2d
+        self.register_buffer('sobel_x', sobel_x.view(1, 1, 3, 3))
+        self.register_buffer('sobel_y', sobel_y.view(1, 1, 3, 3))
+
+    def forward(self, I_pred, I_gt):
+        # Assumes input shape is [B, 1, H, W] for grayscale images
+        grad_pred_x = F.conv2d(I_pred, self.sobel_x, padding=1)
+        grad_pred_y = F.conv2d(I_pred, self.sobel_y, padding=1)
+        grad_gt_x   = F.conv2d(I_gt, self.sobel_x, padding=1)
+        grad_gt_y   = F.conv2d(I_gt, self.sobel_y, padding=1)
+        
+        # Compute absolute differences
+        diff_x = torch.abs(grad_pred_x - grad_gt_x)
+        diff_y = torch.abs(grad_pred_y - grad_gt_y)
+        
+        # Sum the differences and take the mean
+        loss = torch.mean(diff_x + diff_y)
+        return loss
 
 
 def scale_invariant_rmse(predicted, ground_truth):

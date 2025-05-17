@@ -9,7 +9,7 @@ import torch
 import torch.nn as nn
 from utils.dataloader import get_dataloaders
 from utils.visualization import visualize_prediction_with_ground_truth, visualize_prediction_without_ground_truth
-from utils.loss_funcs import DepthUncertaintyLoss, scale_invariant_rmse
+from utils.loss_funcs import DepthUncertaintyLoss, scale_invariant_rmse, SobelEdgeLoss
 from utils.utils import torch_seed
 from model import MiDaSUQ
 # from evaluate import evaluate_model
@@ -29,7 +29,7 @@ from datetime import datetime
 
 
 # Main training function
-def finetune_model(model, train_loader, val_loader, out_path, epochs=5, lr=1e-5, save_every_epoch=True):
+def finetune_model(model, train_loader, val_loader, out_path, epochs=5, lr=1e-5, save_every_epoch=True, grad_consistency_loss_lambda=0.0):
 
     model.to(device)
     model.train()  # set to train mode
@@ -37,6 +37,7 @@ def finetune_model(model, train_loader, val_loader, out_path, epochs=5, lr=1e-5,
     # Define loss and optimizer
     # criterion = nn.L1Loss()  # or nn.MSELoss()
     criterion = DepthUncertaintyLoss()
+    gradloss_func = SobelEdgeLoss().to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 
     #evaluate initial model
@@ -69,7 +70,9 @@ def finetune_model(model, train_loader, val_loader, out_path, epochs=5, lr=1e-5,
                 align_corners=False
             ).squeeze(1)
 
+            gradloss = gradloss_func(pred_depths_resized.unsqueeze(1), depths)
             loss = criterion(pred_depths_resized, pred_logvars_resized, depths.squeeze(1))
+            loss += grad_consistency_loss_lambda * gradloss
             loss.backward()
             optimizer.step()
 
@@ -121,6 +124,8 @@ if __name__ == "__main__":
                       help='Determine whether the last head in MiDaS should be filtered (default: True)')
     args.add_argument('-save', '--save_every_epoch', default=True, type=bool, 
                       help='Determine whether each epoch should be saved (default: True)')
+    args.add_argument('-gl', default=0.0, type=float, 
+                      help="The weight on an additional depth map gradient consistency term added to the loss fucntion")
     config = args.parse_args()
 
     run_id = datetime.now().strftime("%y%m%d_%H%M%S")
@@ -148,7 +153,7 @@ if __name__ == "__main__":
     # test_loader  = get_dataloader(image_size=image_size, mode='test', set_size=None, batch_size=config.batch_size)
 
     # num_epochs = 1
-    finetune_model(model, train_loader, val_loader, out_path=f"models/model_{run_id}_finetuned.pth", epochs=config.epochs, lr=config.learning_rate, save_every_epoch=config.save_every_epoch)
+    finetune_model(model, train_loader, val_loader, out_path=f"models/model_{run_id}_finetuned.pth", epochs=config.epochs, lr=config.learning_rate, save_every_epoch=config.save_every_epoch, grad_consistency_loss_lambda=config.gl)
 
     # Reload the architecture
     # model = torch.hub.load("intel-isl/MiDaS", "DPT_Large")
