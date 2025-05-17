@@ -7,36 +7,42 @@ import cv2
 
 
 # Sharpening function
-def sharpen_image(image):
-    """
-    Sharpen the input image using a kernel.
-    Args:
-        image (ndarray): The input image (in RGB).
-    Returns:
-        sharpened_image (ndarray): The sharpened image.
-    """
-    kernel = np.array([[0, -1, 0],
-                       [-1, 5, -1],
-                       [0, -1, 0]])
+def augment_image(image, type):
+    if type not in ['smooth', 'sharpen', 'none']:
+        raise ValueError("Invalid type. Expected 'smooth', 'sharpen' or 'none'.")
+    if type == 'none':
+        return image
 
-    # Convert image to BGR since OpenCV uses BGR format
-    image_bgr = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+    if type == 'smooth':
+        # Apply Gaussian blur (you can tweak the kernel size and sigma)
+        blurred_image = cv2.GaussianBlur(image, ksize=(5, 5), sigmaX=1.0)
 
-    # Apply sharpening filter
-    sharpened_image = cv2.filter2D(image_bgr, -1, kernel)
+        # Convert it back to RGB
+        smoothed_image = cv2.cvtColor(blurred_image, cv2.COLOR_BGR2RGB)
+        return smoothed_image
+    else:
+        kernel = np.array([[0, -1, 0],
+                           [-1, 5, -1],
+                           [0, -1, 0]])
 
-    # Convert it back to RGB
-    sharpened_image = cv2.cvtColor(sharpened_image, cv2.COLOR_BGR2RGB)
-    return sharpened_image
+        # Convert image to BGR since OpenCV uses BGR format
+        image_bgr = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+
+        # Apply sharpening filter
+        sharpened_image = cv2.filter2D(image_bgr, -1, kernel)
+
+        # Convert it back to RGB
+        sharpened_image = cv2.cvtColor(sharpened_image, cv2.COLOR_BGR2RGB)
+        return sharpened_image
 
 
 class ImageDepthDataset(Dataset):
-    def __init__(self, image_dir, depth_dir, transform, image_depth_file_pairs, sharpen=False):
+    def __init__(self, image_dir, depth_dir, transform, image_depth_file_pairs, augmentation='none'):
         self.image_dir = image_dir
         self.depth_dir = depth_dir
         self.transform = transform
         self.image_depth_file_pairs = image_depth_file_pairs
-        self.sharpen = sharpen
+        self.augmentation = augmentation
 
     def __len__(self):
         return len(self.image_depth_file_pairs)
@@ -50,8 +56,7 @@ class ImageDepthDataset(Dataset):
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         depth = np.load(depth_path)
 
-        if self.sharpen:
-            image = sharpen_image(image)  # Apply sharpening
+        image = augment_image(image, self.augmentation)  # Apply sharpening
 
         image = self.transform(image).squeeze(0)
         depth = torch.from_numpy(depth).unsqueeze(0).float()
@@ -60,12 +65,12 @@ class ImageDepthDataset(Dataset):
     
 
 class TestImageDepthDataset(Dataset):
-    def __init__(self, image_dir, depth_dir, transform, image_depth_file_pairs, sharpen=False):
+    def __init__(self, image_dir, depth_dir, transform, image_depth_file_pairs, augmentation='none'):
         self.image_dir = image_dir
         self.depth_dir = depth_dir
         self.transform = transform
         self.image_depth_file_pairs = image_depth_file_pairs
-        self.sharpen = sharpen
+        self.augmentation = augmentation
 
     def __len__(self):
         return len(self.image_depth_file_pairs)
@@ -78,8 +83,7 @@ class TestImageDepthDataset(Dataset):
         image = cv2.imread(image_path)
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
-        if self.sharpen:
-            image = sharpen_image(image)  # Apply sharpening
+        image = augment_image(image, self.augmentation)  # Apply sharpening
             
         image = self.transform(image).squeeze(0)
         return image, depth_path
@@ -104,7 +108,7 @@ def load_image_depth_pairs(file_path):
 
 
 
-def get_dataloaders(image_size, train_size, val_size, batch_size, train_list="train_list.txt", val_list="val_list.txt", test_list="train_list.txt", sharpen = False):
+def get_dataloaders(image_size, train_size, val_size, batch_size, train_list="train_list.txt", val_list="val_list.txt", test_list="train_list.txt", augmentation='none'):
 
     transform = torch.hub.load("intel-isl/MiDaS", "transforms").dpt_transform
     
@@ -133,19 +137,19 @@ def get_dataloaders(image_size, train_size, val_size, batch_size, train_list="tr
 
     train_batch_size, val_batch_size, test_batch_size = batch_size, batch_size, batch_size
 
-    train_dataset = ImageDepthDataset(train_image_folder, train_depth_folder, transform, train_pairs, sharpen)
+    train_dataset = ImageDepthDataset(train_image_folder, train_depth_folder, transform, train_pairs, augmentation)
     sampler = RandomSampler(train_dataset, generator=g)
     train_loader = DataLoader(train_dataset, batch_size=train_batch_size, sampler=sampler)
 
-    val_dataset = ImageDepthDataset(train_image_folder, train_depth_folder, transform, val_pairs, sharpen)
+    val_dataset = ImageDepthDataset(train_image_folder, train_depth_folder, transform, val_pairs, augmentation)
     val_loader = DataLoader(val_dataset, batch_size=val_batch_size, shuffle=False)
 
-    test_dataset = TestImageDepthDataset(test_image_folder, test_depth_folder, transform, test_pairs, sharpen)
+    test_dataset = TestImageDepthDataset(test_image_folder, test_depth_folder, transform, test_pairs, augmentation)
     test_loader = DataLoader(test_dataset, batch_size=test_batch_size, shuffle=False)
     return train_loader, val_loader, test_loader
 
 
-def get_dataloader(image_size, mode, set_size, batch_size,  train_list="train_list.txt", val_list="val_list.txt", test_list="test_list.txt", root="/cluster/courses/cil/monocular_depth/data", sharpen=False):
+def get_dataloader(image_size, mode, set_size, batch_size,  train_list="train_list.txt", val_list="val_list.txt", test_list="test_list.txt", root="/cluster/courses/cil/monocular_depth/data", augmentation='none'):
     transform = torch.hub.load("intel-isl/MiDaS", "transforms").dpt_transform # preprocessing (normalization etc.)
 
     image_folder = os.path.join(root, "train") if mode in ['train', 'val'] else os.path.join(root, "test")
@@ -158,9 +162,9 @@ def get_dataloader(image_size, mode, set_size, batch_size,  train_list="train_li
 
     dataset = None
     if mode in ['train', 'val']:
-        dataset = ImageDepthDataset(image_folder, depth_folder, transform, pairs, sharpen)
+        dataset = ImageDepthDataset(image_folder, depth_folder, transform, pairs, augmentation)
     else:
-        dataset = TestImageDepthDataset(image_folder, depth_folder, transform, pairs, sharpen)
+        dataset = TestImageDepthDataset(image_folder, depth_folder, transform, pairs, augmentation)
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
     return dataloader
