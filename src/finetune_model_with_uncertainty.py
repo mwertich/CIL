@@ -102,6 +102,12 @@ if __name__ == "__main__":
     args = argparse.ArgumentParser(description='PyTorch Template')
     args.add_argument('-p', '--pretrained', default='../.cache/torch/hub/checkpoints/dpt_large_384.pt', type=str,
                       help='pretrained model path (default: ../.cache/torch/hub/checkpoints/dpt_large_384.pt)')
+    args.add_argument('-trainl', '--train_list', default="train_list.txt", type=str, 
+                      help='Path to train list (default: train_list.txt)')
+    args.add_argument('-vall', '--val_list', default="val_list.txt", type=str, 
+                      help='Path to val list (default: val_list.txt)')
+    args.add_argument('-testl', '--test_list', default="test_list.txt", type=str, 
+                      help='Path to test list (default: test_list.txt)')
     args.add_argument('-e', '--epochs', default=1, type=int,
                       help='number of epochs for finetuning (default: 1)')
     args.add_argument('-t', '--train_size', default=0, type=int,
@@ -112,18 +118,11 @@ if __name__ == "__main__":
                       help='batch size for dataloaders (default: 1)')
     args.add_argument('-l', '--learning_rate', default=1e-5, type=float,
                       help='batch size for dataloaders (default: 1e-5)')
-    args.add_argument('-s', '--sharpen', default = False, type = bool,
-                      help='should the data be sharpened? (default: False)')
-    args.add_argument('-trainl', '--train_list', default="train_list.txt", type=str, 
-                      help='Path to train list (default: train_list.txt)')
-    args.add_argument('-vall', '--val_list', default="val_list.txt", type=str, 
-                      help='Path to val list (default: val_list.txt)')
-    args.add_argument('-testl', '--test-list', default="test_list.txt", type=str, 
-                      help='Path to test list (default: test_list.txt)')
-    args.add_argument('-f', '--filter_head', default=True, type=bool, 
-                      help='Determine whether the last head in MiDaS should be filtered (default: True)')
-    args.add_argument('-save', '--save_every_epoch', default=True, type=bool, 
-                      help='Determine whether each epoch should be saved (default: True)')
+    args.add_argument('-a', '--augmentation', default = 'none', type = str,
+                      help='should the data be augmented? Possible values: sharpen, smooth, none (default: none)')
+    args.add_argument('-f', '--no_filter_head', action='store_true', help='Determine whether the last head in MiDaS should be filtered')
+    args.add_argument('-save', '--save_every_epoch', action='store_true', help='Save after each epoch')
+    args.add_argument("--cluster-root", type=str, default="/cluster/courses/cil/monocular_depth/data/")
     args.add_argument('-gl', default=0.0, type=float, 
                       help="The weight on an additional depth map gradient consistency term added to the loss fucntion")
     config = args.parse_args()
@@ -143,16 +142,15 @@ if __name__ == "__main__":
         k: v for k, v in state_dict.items()
         if "scratch.output_conv.4." not in k  # Exclude final conv layer
     }
-    model.load_state_dict(filtered_state_dict if config.filter_head else state_dict, strict=False)
+    model.load_state_dict(state_dict if config.no_filter_head else filtered_state_dict, strict=False)
 
     image_size = [426, 560]
-    train_loader, val_loader, test_loader = get_dataloaders(image_size, config.train_size, config.val_size, config.batch_size, train_list=config.train_list, val_list=config.val_list, test_list=config.test_list, sharpen=config.sharpen)
+    train_loader, val_loader, test_loader = get_dataloaders(image_size, config.train_size, config.val_size, config.batch_size, train_list=config.train_list, val_list=config.val_list, test_list=config.test_list, augmentation=config.augmentation)
 
     # train_loader = get_dataloader(image_size=image_size, mode='train', set_size=config.train_size, batch_size=config.batch_size)
     # val_loader   = get_dataloader(image_size=image_size, mode='val', set_size=config.val_size, batch_size=config.batch_size)
     # test_loader  = get_dataloader(image_size=image_size, mode='test', set_size=None, batch_size=config.batch_size)
 
-    # num_epochs = 1
     finetune_model(model, train_loader, val_loader, out_path=f"models/model_{run_id}_finetuned.pth", epochs=config.epochs, lr=config.learning_rate, save_every_epoch=config.save_every_epoch, grad_consistency_loss_lambda=config.gl)
 
     # Reload the architecture
@@ -168,8 +166,8 @@ if __name__ == "__main__":
     model.to(device)
     model.eval()
 
-    print("✅ Loaded fine-tuned MiDaS model.")
-    # evaluate_model(model, val_loader, None, device)
-    visualize_prediction_with_ground_truth(model, val_loader, run_id, image_size, device, num_images=10)
+    #print("✅ Loaded fine-tuned MiDaS model.")
+    #evaluate_model_notebook(model, val_loader, device, uq=True, epoch=10)
+    #visualize_prediction_with_ground_truth(model, val_loader, run_id, image_size, device, num_images=10)
     # predict_model(model, test_loader, image_size, device)
-    visualize_prediction_without_ground_truth(model, test_loader, run_id,  image_size, device, num_images=10)
+    #visualize_prediction_without_ground_truth(model, test_loader, run_id,  image_size, device, num_images=10)
