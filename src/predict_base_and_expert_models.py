@@ -166,17 +166,21 @@ def main(config):
     transform = torch.hub.load("intel-isl/MiDaS", "transforms").dpt_transform
 
     root = "src/data"
-    cluster_root = "src/data" # "/cluster/courses/cil/monocular_depth/data/"
-    predictions_root = os.path.join(root, "predictions_temp")
+    cluster_root = config.cluster_root
+    predictions_root = config.predictions_temp_root
+
+    
+    #cluster_root = "src/data"
+    #predictions_root = "src/data/predictions_temp"
 
     train_image_folder = os.path.join(cluster_root, "train")
     test_image_folder = os.path.join(cluster_root, "test")
 
-    os.makedirs(config.predictions_temp_root, exist_ok=True)
+    os.makedirs(predictions_root, exist_ok=True)
     os.makedirs(os.path.join(predictions_root, "base_model"), exist_ok=True)
     os.makedirs(os.path.join(predictions_root, "expert_models"), exist_ok=True)
 
-    categories = ["kitchen", "bathroom", "dorm_room", "living_room", "home_office"]
+    categories = ["kitchen",  "sleeping", "work", "living", "remaining"]
 
     for category in categories:
         os.makedirs(f"{predictions_root}/expert_models/{category}", exist_ok=True)
@@ -218,7 +222,8 @@ if __name__ == "__main__":
     parser.add_argument("--train-list", type=str, required=True, help="Path to sample train list")
     parser.add_argument("--val-list", type=str, required=True, help="Path to sample val list")
     parser.add_argument("--test-list", type=str, default="test_list.txt", help="Path to sample test list")
-    parser.add_argument("--batch-size", type=int, default=4)
+    parser.add_argument("-b", "--batch-size", type=int, default=4)
+    parser.add_argument("--cluster-root", type=str, default="/cluster/courses/cil/monocular_depth/data/")
     parser.add_argument("--predictions-temp-root", type=str, default="/work/scratch/<user>/predictions_temp")
     config = parser.parse_args()
 
