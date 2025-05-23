@@ -12,25 +12,25 @@ def denormalize_image(tensor):
     return tensor.clamp(0, 1)
 
 
-def visualize_depth_maps(plt_title, file_name, image, pred_depth, pred_logvar, ground_truth=None):
+def visualize_depth_maps(plt_title, file_name, image, pred_depth, pred_var, ground_truth=None):
     # Convert tensors to numpy for visualization
     img_vis = denormalize_image(image.squeeze(0).cpu())
     img_np = TF.to_pil_image(img_vis)
     pred_depth_np = pred_depth.squeeze().cpu().numpy()
-    pred_logvar_np = pred_logvar.squeeze().cpu().numpy()
+    pred_var_np = pred_var.squeeze().cpu().numpy()
     # Normalize depth maps for display
     pred_depth_disp = (pred_depth_np - pred_depth_np.min()) / (pred_depth_np.max() - pred_depth_np.min())
-    pred_logvar_disp = (pred_logvar_np - pred_logvar_np.min()) / (pred_logvar_np.max() - pred_logvar_np.min())
+    pred_var_disp = (pred_var_np - pred_var_np.min()) / (pred_var_np.max() - pred_var_np.min())
 
     if ground_truth is not None:
         depth_np = ground_truth.squeeze().cpu().numpy()
         gt_disp = (depth_np - depth_np.min()) / (depth_np.max() - depth_np.min())
         captions = ["Input Image", "Uncertainty", "Ground Truth", "Predicted Depth"]
-        plot_images = [img_np, pred_logvar_disp, gt_disp, pred_depth_disp]
+        plot_images = [img_np, pred_var_disp, gt_disp, pred_depth_disp]
         cmaps = [None, "viridis", "plasma", "plasma"]
     else:
         captions = ["Input Image", "Uncertainty", "Predicted Depth"]
-        plot_images = [img_np, pred_logvar_disp, pred_depth_disp]
+        plot_images = [img_np, pred_var_disp, pred_depth_disp]
         cmaps = [None, "viridis", "plasma"]
     
     # Plot
@@ -63,21 +63,21 @@ def visualize_prediction_with_ground_truth(model, loader, run_id, image_size, de
             images = images.to(device)
             depths = depths.to(device)
 
-            pred_depths, pred_logvars = model(images)
+            pred_depths, pred_vars = model(images)
             pred_depths_resized = torch.nn.functional.interpolate(
                 pred_depths.unsqueeze(1), size=image_size, mode="bicubic", align_corners=False
             )
             
-            pred_logvars_resized = torch.nn.functional.interpolate(
-                pred_logvars.unsqueeze(1), size=image_size, mode="bicubic", align_corners=False
+            pred_vars_resized = torch.nn.functional.interpolate(
+                pred_vars.unsqueeze(1), size=image_size, mode="bicubic", align_corners=False
             )
-            # pred_logvars_resized = torch.exp(pred_logvars_resized).clamp(min=1e-6)
-            for image, depth, pred_depth, pred_logvar in zip(images, depths, pred_depths_resized, pred_logvars_resized): 
+            # pred_vars_resized = torch.exp(pred_vars_resized).clamp(min=1e-6)
+            for image, depth, pred_depth, pred_var in zip(images, depths, pred_depths_resized, pred_vars_resized): 
                 images_shown += 1
                 file_name = f"depth_maps/val/{run_id}/midas_uq_depth_map_{images_shown}.png"
-                visualize_depth_maps("Depths Map Validation Set", file_name, image, pred_depth, pred_logvar, depth)
-                # file_name = f"depth_maps/val/midas_uq_logvar_map_{images_shown}.png"
-                # visualize_depth_maps("Uncertainty Map Validation Set", file_name, image, pred_logvar, uncertainty=True)
+                visualize_depth_maps("Depths Map Validation Set", file_name, image, pred_depth, pred_var, depth)
+                # file_name = f"depth_maps/val/midas_uq_var_map_{images_shown}.png"
+                # visualize_depth_maps("Uncertainty Map Validation Set", file_name, image, pred_var, uncertainty=True)
                 if images_shown >= num_images:
                     return
 
@@ -94,20 +94,20 @@ def visualize_prediction_without_ground_truth(model, test_loader, run_id, image_
 
             images = images.to(device)
 
-            pred_depths, pred_logvars = model(images)
+            pred_depths, pred_vars = model(images)
             pred_depths_resized = torch.nn.functional.interpolate(
                 pred_depths.unsqueeze(1), size=image_size, mode="bicubic", align_corners=False
             )
             
-            pred_logvars_resized = torch.nn.functional.interpolate(
-                pred_logvars.unsqueeze(1), size=image_size, mode="bicubic", align_corners=False
+            pred_vars_resized = torch.nn.functional.interpolate(
+                pred_vars.unsqueeze(1), size=image_size, mode="bicubic", align_corners=False
             )
-            # pred_logvars_resized = torch.exp(pred_logvars_resized).clamp(min=1e-6)
-            for image, pred_depth, pred_logvar in zip(images, pred_depths_resized, pred_logvars_resized): 
+            # pred_vars_resized = torch.exp(pred_vars_resized).clamp(min=1e-6)
+            for image, pred_depth, pred_var in zip(images, pred_depths_resized, pred_vars_resized): 
                 images_shown += 1
                 file_name = f"depth_maps/test/{run_id}/midas_uq_depth_map_{images_shown}.png"
-                visualize_depth_maps("Depths Map Test Set", file_name, image, pred_depth, pred_logvar)
-                # file_name = f"depth_maps/val/midas_uq_logvar_map_{images_shown}.png"
-                # visualize_depth_maps("Uncertainty Map Validation Set", file_name, image, pred_logvar, uncertainty=True)
+                visualize_depth_maps("Depths Map Test Set", file_name, image, pred_depth, pred_var)
+                # file_name = f"depth_maps/val/midas_uq_var_map_{images_shown}.png"
+                # visualize_depth_maps("Uncertainty Map Validation Set", file_name, image, pred_var, uncertainty=True)
                 if images_shown >= num_images:
                     return

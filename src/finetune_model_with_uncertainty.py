@@ -53,7 +53,7 @@ def finetune_model(model, train_loader, val_loader, out_path, epochs=5, lr=1e-5,
             images, depths = images.to(device), depths.to(device)
 
             optimizer.zero_grad()
-            pred_depths, pred_logvars = model(images)
+            pred_depths, pred_vars = model(images)
 
             pred_depths_resized = torch.nn.functional.interpolate(
                 pred_depths.unsqueeze(1),
@@ -62,14 +62,14 @@ def finetune_model(model, train_loader, val_loader, out_path, epochs=5, lr=1e-5,
                 align_corners=False
             ).squeeze(1)
 
-            pred_logvars_resized = torch.nn.functional.interpolate(
-                pred_logvars.unsqueeze(1),
+            pred_vars_resized = torch.nn.functional.interpolate(
+                pred_vars.unsqueeze(1),
                 size=depths.shape[-2:],
                 mode="bicubic",
                 align_corners=False
             ).squeeze(1)
 
-            loss = criterion(pred_depths_resized, pred_logvars_resized, depths.squeeze(1))
+            loss = criterion(pred_depths_resized, pred_vars_resized, depths.squeeze(1))
             loss.backward()
             optimizer.step()
 

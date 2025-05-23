@@ -92,13 +92,13 @@ def predict_model(model, train_loader, val_loader, test_loader, out_dir, eps=1e-
         for loader in [train_loader, val_loader, test_loader]:
             for images, image_file_names in loader:
                 images = images.to(device)
-                pred_depths, pred_logvars = model(images)
+                pred_depths, pred_vars = model(images)
                 pred_depths_resized = torch.nn.functional.interpolate(
                     pred_depths.unsqueeze(1), size=image_size, mode="bicubic", align_corners=False
                 )
                 
-                pred_logvars_resized = torch.nn.functional.interpolate(
-                    pred_logvars.unsqueeze(1), size=image_size, mode="bicubic", align_corners=False
+                pred_vars_resized = torch.nn.functional.interpolate(
+                    pred_vars.unsqueeze(1), size=image_size, mode="bicubic", align_corners=False
                 )
                 pred_depths_resized = pred_depths_resized.clamp(min=eps) # for numerical stability for RMSE to avoid nan values due to log(0)
 
@@ -106,9 +106,9 @@ def predict_model(model, train_loader, val_loader, test_loader, out_dir, eps=1e-
                     storage_path = os.path.join(out_dir, f"{file_name[:-8]}_depth")
                     np.save(storage_path, pred_depth.cpu())
 
-                for pred_logvars, file_name in zip(pred_logvars_resized, image_file_names):
+                for pred_vars, file_name in zip(pred_vars_resized, image_file_names):
                     storage_path = os.path.join(out_dir, f"{file_name[:-8]}_uncertainty")
-                    np.save(storage_path, pred_logvars.cpu())
+                    np.save(storage_path, pred_vars.cpu())
 
 
 def predict_ensemble(model_paths, categories, train_loader, val_loader, test_loader, out_dir, eps=1e-8):
