@@ -112,3 +112,105 @@ def evaluate_model_notebook(model, val_loader, device="cuda", uq=False, epoch=0)
     print(f"Scores after epoch {epoch}: " + str({k: f"{float(v):.4f}"[-6:] for k, v in metrics.items()}))
 
     return metrics
+
+
+def evaluate_uncertainty(model, val_loader, device="cuda", epoch=0):
+    """Evaluate the model capability to quatify the uncertainty of its predictions"""
+    model.eval()
+   
+    total_samples = 0
+    target_shape = None
+    total_accurate_certain = 0
+    total_certain = 0
+    total_inaccurate_uncertain = 0
+    total_inaccurate = 0
+    total_pavpu_pixels = 0
+
+    with torch.no_grad():
+        for inputs, targets in tqdm(val_loader, desc="Evaluating"):
+            inputs, targets = inputs.to(device), targets.to(device)
+            batch_size = inputs.size(0)
+            pixel_num = inputs.size(2) * inputs.size(3)
+            total_samples += batch_size
+            
+            if target_shape is None:
+                target_shape = targets.shape
+            
+
+            # Forward pass
+            outputs, variance = model(inputs)
+            
+            # Resize outputs to match target dimensions
+            outputs = nn.functional.interpolate(
+                outputs.unsqueeze(1),
+                size=targets.shape[-2:],  # Match height and width of targets
+                mode='bilinear',
+                align_corners=True
+            )
+            
+            variance = nn.functional.interpolate(
+                variance.unsqueeze(1),
+                size=targets.shape[-2:],  # Match height and width of targets
+                mode='bilinear',
+                align_corners=True
+            )
+    
+            median_uncertainty = torch.median(variance.squeeze(1).view(batch_size, -1), dim=1).values.view(-1, 1, 1, 1)
+            max_ratio = torch.max(outputs / (targets + 1e-6), targets / (outputs + 1e-6))
+            certain = torch.sum((variance < median_uncertainty)).item()
+            accurate_and_certain = torch.sum((max_ratio < 1.25) * (variance < median_uncertainty)).item()
+            assert accurate_and_certain <= certain, "Inconsistent counts: accurate_and_certain should be less than or equal to accurate"
+            inaccurate = torch.sum(max_ratio >= 1.25).item() 
+            inaccurate_and_uncertain = torch.sum((max_ratio >= 1.25) * (variance >= median_uncertainty)).item()
+            assert inaccurate_and_uncertain <= inaccurate, "Inconsistent counts: inaccurate_and_uncertain should be less than or equal to uncertain"
+            total_accurate_certain += accurate_and_certain
+            total_certain += certain
+            total_inaccurate_uncertain += inaccurate_and_uncertain
+            total_inaccurate += inaccurate
+            total_pavpu_pixels += (accurate_and_certain + inaccurate_and_uncertain)
+
+    
+    # Calculate final metrics using stored target shape
+    total_pixels = target_shape[1] * target_shape[2] * target_shape[3]  # channels * height * width
+    pa = total_accurate_certain / total_certain if total_certain > 0 else 0
+    pu = total_inaccurate_uncertain / total_inaccurate if total_inaccurate > 0 else 0
+    pavpu = total_pavpu_pixels / (total_samples * total_pixels)
+        
+    metrics = {
+        'PA': pa,
+        'PU': pu,
+        'PAvPU': pavpu,
+    }
+    
+    print(f"Uncertainty metrics after epoch {epoch}: " + str({k: f"{float(v):.4f}" for k, v in metrics.items()}))
+
+    return metrics
+
+
+
+if __name__ == "__main__":
+    import argparse
+    from utils.dataloader import get_dataloader
+    from model import MiDaSUQ
+
+    args = argparse.ArgumentParser(description='PyTorch Template')
+    args.add_argument('-p', '--pretrained', required=True, type=str, help='pretrained model path')
+    args.add_argument('--val_list', default="val_list.txt", type=str, help='Path to val list (default: val_list.txt)')
+    args.add_argument('--val_size', default=0, type=int, help='validation set size (default: 0 = all)')
+    args.add_argument('-b', '--batch_size', default=1, type=int, help='batch size for dataloaders (default: 1)')
+    config = args.parse_args()
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model = MiDaSUQ(backbone="vitl16_384")
+    state_dict = torch.load(config.pretrained, map_location=device)
+    model.load_state_dict(state_dict)
+    model.to(device)
+    image_size = [426, 560]
+    
+    val_loader = get_dataloader(image_size, "val",
+                                config.val_size, config.batch_size,
+                                val_list=config.val_list, 
+                                root="src/data")
+
+    evaluate_uncertainty(model, val_loader, device=device, epoch=0)
+    evaluate_model_notebook(model, val_loader, device=device, uq=True, epoch=0)
+
