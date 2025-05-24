@@ -331,8 +331,8 @@ def visualize_batch(images, pred_depths, depths, probs_batch, predicted_indices_
 
 
         # Best expert map (oracle)
-        predicted_expert_map[~mask] = 6
-        best_expert_indices[~mask] = 6
+        predicted_expert_map[~mask] = -1
+        best_expert_indices[~mask] = -1
         
         # Best expert map (oracle)
         best_map = best_expert_indices.cpu().numpy()  # (H, W)
