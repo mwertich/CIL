@@ -68,22 +68,22 @@ def predict_base_model(model_path, train_loader, val_loader, test_loader, out_di
         for loader in [train_loader, val_loader, test_loader]:
             for images, image_file_names in tqdm(loader, f"Predict with {model_path}"):
                 images = images.to(device)
-                pred_depths, pred_logvars = model(images)
+                pred_depths, pred_vars = model(images)
                 pred_depths_resized = torch.nn.functional.interpolate(
                     pred_depths.unsqueeze(1), size=image_size, mode="bilinear", align_corners=False
                 ).clamp(min=eps)
                 
-                pred_logvars_resized = torch.nn.functional.interpolate(
-                    pred_logvars.unsqueeze(1), size=image_size, mode="bilinear", align_corners=False
+                pred_vars_resized = torch.nn.functional.interpolate(
+                    pred_vars.unsqueeze(1), size=image_size, mode="bilinear", align_corners=False
                 ).clamp(min=eps) # for numerical stability for RMSE to avoid nan values due to log(0)
 
                 for pred_depth, file_name in zip(pred_depths_resized, image_file_names):
                     storage_path = os.path.join(out_dir, f"{file_name[:-8]}_depth")
                     np.save(storage_path, pred_depth.cpu())
 
-                for pred_logvars, file_name in zip(pred_logvars_resized, image_file_names):
+                for pred_vars, file_name in zip(pred_vars_resized, image_file_names):
                     storage_path = os.path.join(out_dir, f"{file_name[:-8]}_uncertainty")
-                    np.save(storage_path, pred_logvars.cpu())
+                    np.save(storage_path, pred_vars.cpu())
 
 
 def predict_ensemble(model_paths, categories, train_loader, val_loader, test_loader, out_dir, eps=1e-8, uq=False):
@@ -104,9 +104,9 @@ def predict_ensemble(model_paths, categories, train_loader, val_loader, test_loa
                     if not uq:
                         preds = model(images)
                     else:
-                        preds, pred_logvars = model(images)
-                        pred_logvars_resized = torch.nn.functional.interpolate(
-                            pred_logvars.unsqueeze(1), size=image_size, mode="bilinear", align_corners=False
+                        preds, pred_vars = model(images)
+                        pred_vars_resized = torch.nn.functional.interpolate(
+                            pred_vars.unsqueeze(1), size=image_size, mode="bilinear", align_corners=False
                         ).clamp(min=eps)
 
                     preds_resized = torch.nn.functional.interpolate(
@@ -118,9 +118,9 @@ def predict_ensemble(model_paths, categories, train_loader, val_loader, test_loa
                         np.save(storage_path, pred.cpu())
 
                     if uq:
-                        for pred_logvars, file_name in zip(pred_logvars_resized, image_file_names):
+                        for pred_vars, file_name in zip(pred_vars_resized, image_file_names):
                             storage_path = os.path.join(out_path, f"{file_name[:-8]}_uncertainty")
-                            np.save(storage_path, pred_logvars.cpu())
+                            np.save(storage_path, pred_vars.cpu())
 
 
 def load_predictions(categories, out_dir, visualize=False):
@@ -166,19 +166,22 @@ def main(config):
     transform = torch.hub.load("intel-isl/MiDaS", "transforms").dpt_transform
 
     root = "src/data"
-    cluster_root = "src/data" # "/cluster/courses/cil/monocular_depth/data/"
-    predictions_root = os.path.join(root, "predictions_temp")
+    cluster_root = config.cluster_root
+    predictions_root = config.predictions_temp_root
+
+    
+    #cluster_root = "src/data"
+    #predictions_root = "src/data/predictions_temp"
 
     train_image_folder = os.path.join(cluster_root, "train")
     test_image_folder = os.path.join(cluster_root, "test")
 
-    os.makedirs(config.predictions_temp_root, exist_ok=True)
+    os.makedirs(predictions_root, exist_ok=True)
     os.makedirs(os.path.join(predictions_root, "base_model"), exist_ok=True)
     os.makedirs(os.path.join(predictions_root, "expert_models"), exist_ok=True)
-
+    
     # categories = ["smoothed"]
-    # categories = ["kitchen", "living", "work", "remaining", "sleeping"]
-    categories = ["living", "work", "remaining", "sleeping"]
+    categories = ["kitchen",  "sleeping", "work", "living", "remaining"]
 
     for category in categories:
         os.makedirs(f"{predictions_root}/expert_models/{category}", exist_ok=True)
@@ -220,7 +223,8 @@ if __name__ == "__main__":
     parser.add_argument("--train-list", type=str, required=True, help="Path to sample train list")
     parser.add_argument("--val-list", type=str, required=True, help="Path to sample val list")
     parser.add_argument("--test-list", type=str, default="test_list.txt", help="Path to sample test list")
-    parser.add_argument("--batch-size", type=int, default=4)
+    parser.add_argument("-b", "--batch-size", type=int, default=4)
+    parser.add_argument("--cluster-root", type=str, default="/cluster/courses/cil/monocular_depth/data/")
     parser.add_argument("--predictions-temp-root", type=str, default="/work/scratch/<user>/predictions_temp")
     config = parser.parse_args()
 

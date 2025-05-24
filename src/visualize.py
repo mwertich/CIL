@@ -35,5 +35,5 @@ if __name__ == "__main__":
     model.eval()
     print("✅ Loaded fine-tuned MiDaS model.")
     
-    visualize_prediction_with_ground_truth(model, val_loader, run_id, image_size, device, num_images=10)
+    visualize_prediction_with_ground_truth(model, val_loader, run_id, image_size, device, num_images=10, map_error=True)
     visualize_prediction_without_ground_truth(model, test_loader, run_id,  image_size, device, num_images=10)

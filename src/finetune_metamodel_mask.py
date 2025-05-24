@@ -155,7 +155,7 @@ def evaluate_metamodel(model, val_dataloader, epoch, categories, threshold=0.03,
     total_sirmse_loss, total_rmse_loss, total_mae_loss, total_rel_loss, total_delta1_accuracy, total_delta2_accuracy, total_delta3_accuracy = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
     count = 0
     with torch.no_grad():
-        for batch in val_dataloader:
+        for batch in tqdm(val_dataloader, desc=f"Evaluating epoch {epoch}", leave=True):
             images, depths, predictions, uncertainties = batch
             images = images.cuda().permute(0, 3, 1, 2)  # (B, C, H, W)
             depths = depths.cuda()  # (B, 1, H, W)
@@ -392,14 +392,14 @@ def visualize_batch(images, pred_depths, depths, probs_batch, predicted_indices_
             rgb_image = masked_probs.transpose(1, 2, 0) * color  # (H, W, 3)
             
             ax2[i].imshow(rgb_image)
-            ax2[i].set_title(f'Prob {experts[i]}')
+            ax2[i].set_title(f'Prob Expert {experts[i]} Model')
             ax2[i].text(0.5, -0.1, f'Mean: {np.mean(valid_values):.3f}, Std: {np.std(valid_values):.3f}, Max: {np.max(valid_values):.3f}, Min: {np.min(valid_values):.3f}', transform=ax2[i].transAxes,ha='center', va='top', fontsize=11)
             ax2[i].axis('off')
 
             
         for i in range(num_models):
             ax3[i].imshow(uncertainty_predictions[i].cpu().numpy(), cmap='viridis')
-            ax3[i].set_title(f'Uncertainty {experts[i]} model ')
+            ax3[i].set_title(f'Uncertainty Expert {experts[i]} model ')
             ax3[i].axis('off')
 
 
@@ -410,7 +410,7 @@ def visualize_batch(images, pred_depths, depths, probs_batch, predicted_indices_
         ]
 
         # Add legend to the figure
-        fig.legend(handles=legend_elements, loc='lower center', ncol=len(experts), fontsize=12, frameon=False)
+        fig.legend(handles=legend_elements,loc='upper center', bbox_to_anchor=(0.5, 0.7), ncol=len(experts), fontsize=12, frameon=False)
 
         plt.tight_layout()
         
@@ -427,7 +427,11 @@ def visualize_batch(images, pred_depths, depths, probs_batch, predicted_indices_
 def main(config):
 
     root = "src/data"
-    cluster_root = "src/data" # "/cluster/courses/cil/monocular_depth/data/"
+    cluster_root = config.cluster_root
+    predictions_root = config.predictions_temp_root
+
+    #cluster_root = "src/data" # "/cluster/courses/cil/monocular_depth/data/"
+    #predictions_root = "src/data/predictions_temp" #"/mnt/d/ETH/CIL/predictions_temp"
 
     train_image_folder = os.path.join(cluster_root, "train")
     train_depth_folder = os.path.join(cluster_root, "train")
@@ -436,9 +440,10 @@ def main(config):
     test_image_folder = os.path.join(cluster_root, "test")
 
     categories = ["kitchen", "bathroom", "dorm_room", "living_room", "home_office"]
+    categories = ["sleeping", "work", "kitchen", "living", "remaining"]
     num_experts = len(categories) + 1
-    base_predictions_path = os.path.join(root, "predictions_temp/base_model")
-    expert_predictions_path = os.path.join(root, "predictions_temp/expert_models")
+    base_predictions_path = os.path.join(predictions_root, "base_model")
+    expert_predictions_path = os.path.join(predictions_root, "expert_models")
 
     train_image_depth_pairs = load_image_depth_pairs(os.path.join(root, config.train_list))
     val_image_depth_pairs = load_image_depth_pairs(os.path.join(root, config.val_list))
@@ -453,7 +458,7 @@ def main(config):
     val_dataloader = DataLoader(val_dataset, batch_size=config.batch_size, shuffle=True)
     test_dataloader = DataLoader(test_dataset, batch_size=config.batch_size, shuffle=True)
     
-    model = SimpleUNet(in_channels=4, num_experts=num_experts)
+    model = AttentionUNet(in_channels=4, num_experts=num_experts)
     uncertainty_threshold = config.uncertainty_threshold
     tau=config.tau
 
@@ -466,7 +471,7 @@ def main(config):
     model.eval()
     evaluate_metamodel(model, val_dataloader, config.num_epochs, categories, threshold=uncertainty_threshold, tau=tau)
     print("Predict MetaModel")
-    predict_metamodel(model, test_dataloader, threshold=uncertainty_threshold, tau=tau)
+    #predict_metamodel(model, test_dataloader, threshold=uncertainty_threshold, tau=tau)
     print("Finished")
 
 
@@ -477,11 +482,13 @@ if __name__ == "__main__":
     parser.add_argument("--val-list", type=str, required=True, help="Path to val list") # category_lists/bathroom_val_list.txt
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--num-epochs", type=int, default=10)
-    parser.add_argument("--uncertainty-threshold", type=float, default=0.05, help="Only evaluate loss at uncertain regions (uncertainty > threshold), otherwise base model")
+    parser.add_argument("--uncertainty-threshold", type=float, default=0.00, help="Only evaluate loss at uncertain regions (uncertainty > threshold), otherwise base model")
     parser.add_argument("--alpha", type=float, default=1., help="mse loss of masked region")
-    parser.add_argument("--beta", type=float, default=0., help="cross entropy loss of masked region (with best expert per pixel)")
+    parser.add_argument("--beta", type=float, default=0.01, help="cross entropy loss of masked region (with best expert per pixel)") #0.02
     parser.add_argument("--gamma", type=float, default=0., help="entropy regularization (punishes flat distributions in terms of post-softmax values)")
-    parser.add_argument("--tau", type=float, default=10., help="temperature of model outputs before softmax (logits)")
+    parser.add_argument("--tau", type=float, default=1., help="temperature of model outputs before softmax (logits)") #5.
+    parser.add_argument("--cluster-root", type=str, default="/cluster/courses/cil/monocular_depth/data/")
+    parser.add_argument("--predictions-temp-root", type=str, default="/work/scratch/<user>/predictions_temp")
     config = parser.parse_args()
 
     run_id = datetime.now().strftime("%y%m%d_%H%M%S")
