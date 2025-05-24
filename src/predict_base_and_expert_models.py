@@ -176,7 +176,9 @@ def main(config):
     os.makedirs(os.path.join(predictions_root, "base_model"), exist_ok=True)
     os.makedirs(os.path.join(predictions_root, "expert_models"), exist_ok=True)
 
-    categories = ["kitchen", "bathroom", "dorm_room", "living_room", "home_office"]
+    # categories = ["smoothed"]
+    # categories = ["kitchen", "living", "work", "remaining", "sleeping"]
+    categories = ["living", "work", "remaining", "sleeping"]
 
     for category in categories:
         os.makedirs(f"{predictions_root}/expert_models/{category}", exist_ok=True)
