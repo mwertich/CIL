@@ -16,7 +16,7 @@ The base model is stored as "models/model_{run_id}_finetuned.pth". Rename it to 
 
 2. Fine-tune expert MiDas models with uncertainty:
 
-Call src/categorize.py to obtain the categorized list of images belonging to the respective category.
+Call src/categorize_images.py to obtain the categorized list of images belonging to the respective category.
 
 There exist five categories from which we have obtained images:  ["sleeping", "work", "kitchen", "living", "remaining"]
 
