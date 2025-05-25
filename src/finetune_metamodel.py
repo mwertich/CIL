@@ -3,7 +3,6 @@ import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 import numpy as np
-import cv2
 from tqdm import tqdm
 from sklearn.model_selection import train_test_split
 import matplotlib.pyplot as plt
@@ -14,170 +13,38 @@ import torch.nn.functional as F
 import torchvision
 from datetime import datetime
 from tqdm import tqdm
+from meta_models import SimpleUNet, AttentionUNet
+from utils.expert_dataloader import ExpertTrainDataset, ExpertTestDataset
+from utils.loss_funcs import scale_invariant_rmse, mae_loss, rmse_loss, rel_loss, delta1_accuracy, delta2_accuracy, delta3_accuracy
+from evaluate_notebook import evaluate_model_notebook
+from matplotlib.patches import Patch
+import json
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 image_size = [426, 560]
-
-class ExpertTrainDataset(Dataset):
-    def __init__(self, image_dir, depth_dir, image_depth_file_pairs, base_predictions_path, expert_predictions_path, categories):
-        self.image_dir = image_dir
-        self.depth_dir = depth_dir
-        self.image_depth_file_pairs = image_depth_file_pairs
-        self.base_predictions_path = base_predictions_path
-        self.expert_predictions_path = expert_predictions_path
-        self.categories = categories
-
-    def __len__(self):
-        return len(self.image_depth_file_pairs)
-
-    def __getitem__(self, idx):
-        image_file_name, depth_file_name = self.image_depth_file_pairs[idx]
-        image_path = os.path.join(self.image_dir, image_file_name)
-        depth_path = os.path.join(self.depth_dir, depth_file_name)
-
-        image = cv2.imread(image_path)
-        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        depth = np.load(depth_path)
-
-        image = torch.from_numpy(image / 255).float()
-        depth = torch.from_numpy(depth).unsqueeze(0).float()
-        predictions = []
-
-        base_model_prediction_path = os.path.join(self.base_predictions_path, depth_file_name)
-        base_pred_depth = torch.from_numpy(np.load(base_model_prediction_path)).float()
-        
-        uncertainty_path = os.path.join(self.base_predictions_path, depth_file_name.replace("depth", "uncertainty"))
-        uncertainty = np.load(uncertainty_path)
-        uncertainty = (uncertainty - uncertainty.min()) / (uncertainty.max() - uncertainty.min())
-
-        predictions.append(base_pred_depth)
-
-        for category in self.categories:
-            expert_prediction_dir = os.path.join(self.expert_predictions_path, category)
-            pred_file = os.path.join(expert_prediction_dir, depth_file_name)
-            pred_depth = torch.from_numpy(np.load(pred_file)).float()
-            predictions.append(pred_depth)
-
-        return image, depth, predictions, uncertainty
-    
-
-class ExpertTestDataset(Dataset):
-    def __init__(self, image_dir, image_depth_file_pairs, base_predictions_path, expert_predictions_path, categories):
-        self.image_dir = image_dir
-        self.image_depth_file_pairs = image_depth_file_pairs
-        self.base_predictions_path = base_predictions_path
-        self.expert_predictions_path = expert_predictions_path
-        self.categories = categories
-
-    def __len__(self):
-        return len(self.image_depth_file_pairs)
-
-    def __getitem__(self, idx):
-        image_file_name, depth_file_name = self.image_depth_file_pairs[idx]
-        image_path = os.path.join(self.image_dir, image_file_name)
-        image = cv2.imread(image_path)
-        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-
-        image = torch.from_numpy(image / 255).float()
-        predictions = []
-
-        base_model_prediction_path = os.path.join(self.base_predictions_path, depth_file_name)
-        base_pred_depth = torch.from_numpy(np.load(base_model_prediction_path)).unsqueeze(0).float()
-
-        uncertainty_path = os.path.join(self.base_predictions_path, depth_file_name.replace("depth", "uncertainty"))
-        uncertainty = torch.from_numpy(np.load(uncertainty_path)).unsqueeze(0).float()
-        uncertainty = (uncertainty - uncertainty.min()) / (uncertainty.max() - uncertainty.min())
-
-        predictions.append(base_pred_depth)
-
-        for category in self.categories:
-            expert_prediction_dir = os.path.join(self.expert_predictions_path, category)
-            pred_file = os.path.join(expert_prediction_dir, depth_file_name)
-            pred_depth = torch.from_numpy(np.load(pred_file)).unsqueeze(0).float()
-            predictions.append(pred_depth)
-        return image, depth_file_name, predictions, uncertainty
-    
-    
-# ===== Simple UNet =====
-class SimpleUNet(nn.Module):
-    def __init__(self, num_experts):
-        super(SimpleUNet, self).__init__()
-        self.enc1 = nn.Sequential(nn.Conv2d(3, 64, 3, padding=1), nn.ReLU(), nn.Conv2d(64, 64, 3, padding=1), nn.ReLU())
-        self.pool1 = nn.MaxPool2d(2)
-        self.enc2 = nn.Sequential(nn.Conv2d(64, 128, 3, padding=1), nn.ReLU(), nn.Conv2d(128, 128, 3, padding=1), nn.ReLU())
-        self.pool2 = nn.MaxPool2d(2)
-
-        self.bottleneck = nn.Sequential(nn.Conv2d(128, 256, 3, padding=1), nn.ReLU(), nn.Conv2d(256, 256, 3, padding=1), nn.ReLU())
-
-        self.up2 = nn.ConvTranspose2d(256, 128, 2, stride=2)
-        self.dec2 = nn.Sequential(nn.Conv2d(256, 128, 3, padding=1), nn.ReLU(), nn.Conv2d(128, 128, 3, padding=1), nn.ReLU())
-
-        self.up1 = nn.ConvTranspose2d(128, 64, 2, stride=2)
-        self.dec1 = nn.Sequential(nn.Conv2d(128, 64, 3, padding=1), nn.ReLU(), nn.Conv2d(64, 64, 3, padding=1), nn.ReLU())
-
-        self.final = nn.Conv2d(64, num_experts, 1)
-
-        for layer in self.modules():
-            if isinstance(layer, nn.Conv2d):
-                nn.init.kaiming_normal_(layer.weight, mode='fan_out', nonlinearity='relu')
+# Set a fixed random seed for reproducibility
+torch.manual_seed(0)
 
 
-    def center_crop(self, tensor, target_tensor):
-        _, _, h, w = target_tensor.shape
-        tensor = torchvision.transforms.functional.center_crop(tensor, [h, w])
-        return tensor
-
-    def forward(self, x):
-        w_pad = (x.shape[-1] % 4) // 2
-        h_pad = (x.shape[-2] % 4) // 2
-        x_pad = F.pad(x, (w_pad, w_pad, h_pad, h_pad), mode='replicate')  # Pad to make it divisible by 4
-        e1 = self.enc1(x_pad)
-        p1 = self.pool1(e1)
-        e2 = self.enc2(p1)
-        p2 = self.pool2(e2)
-        
-        b = self.bottleneck(p2)
-        
-        u2 = self.up2(b)
-        u2 = torch.cat([u2, e2], dim=1)
-        d2 = self.dec2(u2)
-
-        u1 = self.up1(d2)
-        u1 = torch.cat([u1, e1], dim=1)
-        d1 = self.dec1(u1)
-
-        out = self.final(d1)
-        return self.center_crop(out, x)
+plt.rcParams.update({
+    'font.size': 14,               # Increase font size
+    'axes.titlesize': 16,          # Bigger subplot titles
+    'axes.labelsize': 14,
+    'xtick.labelsize': 12,
+    'ytick.labelsize': 12,
+    'legend.fontsize': 14,
+})
 
 
-def scale_invariant_rmse(predicted, ground_truth):
-    """
-    predicted: Tensor of shape (B, 1, H, W)
-    ground_truth: Tensor of shape (B, 1, H, W)
-    Returns: scalar tensor (loss value)
-    """
-
-    # Flatten spatial dimensions
-    B = predicted.size(0)
-    predicted = predicted.reshape(B, -1)
-    ground_truth = ground_truth.reshape(B, -1)
-
-    # Log difference
-    log_diff = torch.log(predicted) - torch.log(ground_truth)
-
-    # Compute the global bias (alpha)
-    alpha = torch.mean(log_diff, dim=1, keepdim=True)
-
-    # Add bias and compute RMSE
-    corrected_diff = log_diff + alpha  # Important! Add bias before squaring
-    loss = torch.sqrt(torch.mean(corrected_diff ** 2, dim=1))
-
-    return loss.mean()  # scalar
-
-
-def entropy_loss(probs):
+def entropy_loss(probs, mask=None, eps=1e-8):
     # probs: (B, num_experts, H, W)
-    return -torch.mean(torch.sum(probs * torch.log(probs + 1e-8), dim=1))
+    ent = -torch.sum(probs * torch.log(probs + eps), dim=1)  # shape: (B, H, W)
+    
+    if mask is not None:
+        ent = ent * mask.float()  # Apply the spatial mask
+        return ent.sum() / mask.float().sum()  # Mean over masked pixels
+    else:
+        return ent.mean()
     
 
 def load_image_depth_pairs(file_path):
@@ -198,15 +65,16 @@ def load_image_depth_pairs(file_path):
     return pairs
 
 
-def train_metamodel(model, train_dataloader, val_dataloader, categories, num_epochs=10, lr=1e-4, alpha=1, beta=0.001, tau=.5, save_model=True):
+def train_metamodel(model, train_dataloader, val_dataloader, categories, num_epochs=10, lr=1e-4, threshold=0.06, alpha=1., beta=0., gamma=0., tau=1., inv_uq_sampling=True, out_path=""):
     model = model.cuda()
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
     mse_loss = nn.MSELoss()
-    ce_loss = nn.CrossEntropyLoss()
+    sirmse_loss = scale_invariant_rmse
+    ce_loss_fn = nn.CrossEntropyLoss()
 
 
-    # evaluate initial model
-    evaluate_metamodel(model, val_dataloader, 0, categories, tau)
+    #evaluate initial model
+    evaluate_metamodel(model, val_dataloader, 0, categories, threshold, tau)
 
     model.train()
     for epoch in range(1, num_epochs + 1):
@@ -218,26 +86,62 @@ def train_metamodel(model, train_dataloader, val_dataloader, categories, num_epo
         train_loader_tqdm = tqdm(train_dataloader, desc=f"Epoch {epoch}/{num_epochs}", leave=True)
 
         for batch in train_loader_tqdm:
-            images, depths, predictions, uncertainties = batch
+            images, depths, predictions, uncertainties, image_paths = batch
 
             images = images.cuda().permute(0, 3, 1, 2)  # (B, C, H, W)
             depths = depths.cuda()  # (B, 1, H, W)
+            uncertainties = uncertainties  # (B, C, H, W)
 
-            experts = torch.stack(predictions, dim=0).squeeze(2).permute(1, 0, 2, 3).cuda()
+            expert_predictions = torch.stack(predictions, dim=0).squeeze(2).permute(1, 0, 2, 3).cuda()
+            uncertainty_predictions = torch.stack(uncertainties, dim=0).squeeze(2).permute(1, 0, 2, 3).cuda()
 
-            logits = model(images) / tau  # (B, num_experts, H, W) (tau = temperature for softmax and cross entropy loss)
+            uncertainty_base_model = uncertainty_predictions[:, 0].unsqueeze(dim=1)
 
+            images_with_uncertainty = torch.cat((images, uncertainty_base_model), dim=1)
+            logits = model(images_with_uncertainty) # (B, num_experts, H, W)
+
+            logits = F.interpolate(logits, size=expert_predictions.shape[-2:], mode='bilinear', align_corners=False)
+            if inv_uq_sampling:
+                logits = logits / uncertainty_predictions
+            logits = logits / tau
+
+            # Prepare uncertainty and resize to match expert resolution
+            #uncertainty_min, uncertainty_max, uncertainty_mean, uncertainty_std = torch.min(uncertainty), torch.max(uncertainty), torch.mean(uncertainty), torch.std(uncertainty)
+            uncertainty_mask = (uncertainty_base_model > threshold).squeeze(1)  # (B, H, W)
+
+            # Get model prediction
             probs = F.softmax(logits, dim=1)  # (B, num_experts, H, W)
-            pred_depth = torch.sum(probs * experts, dim=1, keepdim=True)  # (B, 1, H, W)
 
-            errors = torch.abs(experts - depths.expand_as(experts))  # (B, num_experts, H, W)
+            errors = torch.abs(expert_predictions - depths.expand_as(expert_predictions))  # (B, num_experts, H, W)
             best_expert_indices = torch.argmin(errors, dim=1)  # (B, H, W)
 
-            mse_loss_term = mse_loss(pred_depth, depths)
-            ce_loss_term = ce_loss(logits, best_expert_indices)
-            entropy_loss_term = entropy_loss(probs)
 
-            loss = mse_loss_term + alpha * ce_loss_term + beta * entropy_loss_term
+            # Compute softmax-based depth only at uncertain pixels
+            final_prediction = torch.empty_like(depths)
+
+            # (1) Use expert 0 prediction where uncertainty is low
+            base_model_prediction = expert_predictions[:, 0]
+            final_prediction[:, 0][~uncertainty_mask] = base_model_prediction[~uncertainty_mask]
+
+            # (2) Use soft combination where uncertainty is high
+            soft_pred = torch.sum(probs * expert_predictions, dim=1)  # (B, H, W)
+            final_prediction[:, 0][uncertainty_mask] = soft_pred[uncertainty_mask]
+
+            # Compute per-pixel loss mask
+            # Loss is computed where uncertainty is high (soft combination used)
+            mask_loss = uncertainty_mask.unsqueeze(1)  # (B, 1, H, W)
+
+            # Masked MSE Loss
+            masked_final = final_prediction[mask_loss]
+            masked_depths = depths[mask_loss]
+            mse = mse_loss(masked_final, masked_depths)
+
+            # Cross-Entropy Loss (masked)
+            ce_raw = ce_loss_fn(logits, best_expert_indices)  # shape: scalar loss
+            ce = (ce_raw * mask_loss.float()).mean()  # Apply mask
+
+            # Final loss
+            loss = alpha * mse + beta * ce + gamma * entropy_loss(probs, mask_loss)
 
             optimizer.zero_grad()
             loss.backward()
@@ -248,57 +152,165 @@ def train_metamodel(model, train_dataloader, val_dataloader, categories, num_epo
             # ✏️ Update tqdm with current average loss
             train_loader_tqdm.set_postfix({'loss': running_loss / (train_loader_tqdm.n + 1e-8)})
 
-        print(f"✅ Epoch [{epoch}/{num_epochs}] finished. Loss: {running_loss/len(train_dataloader):.4f}")
-        evaluate_metamodel(model, val_dataloader, epoch, categories, tau)
 
-    if save_model:
-        torch.save(model.state_dict(), f"models/metamodel_final.pth")
-        print(f"💾 Saved model checkpoint at models/metamodel_final.pth")
+        print(f"✅ Epoch [{epoch}/{num_epochs}] finished. Loss: {running_loss/len(train_dataloader):.4f}")
+        evaluate_metamodel(model, val_dataloader, epoch, categories, threshold, tau)
+        epoch_out_path = out_path.replace("finetuned", f"finetuned_{epoch}")
+        torch.save(model.state_dict(), epoch_out_path)
+        print(f"💾 Saved model checkpoint for epoch {epoch} at {epoch_out_path}")
+
+    torch.save(model.state_dict(), out_path)
+    print(f"💾 Saved model checkpoint at {out_path}")
     return model
 
 
-def evaluate_metamodel(model, val_dataloader, epoch, categories, tau=1., visualize=True):
+def evaluate_metamodel(model, val_dataloader, epoch, categories, threshold=0.03, tau=1., inv_uq_sampling=True, visualize=True):
     model.eval()
-    total_rmse = 0.0
+    total_sirmse_loss, total_rmse_loss, total_mae_loss, total_rel_loss, total_delta1_accuracy, total_delta2_accuracy, total_delta3_accuracy = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
     count = 0
     with torch.no_grad():
-        for batch in val_dataloader:
-            images, depths, predictions, uncertainties = batch
+        for batch in tqdm(val_dataloader, desc=f"Evaluating epoch {epoch}", leave=True):
+            images, depths, predictions, uncertainties, image_paths = batch
             images = images.cuda().permute(0, 3, 1, 2)  # (B, C, H, W)
             depths = depths.cuda()  # (B, 1, H, W)
 
             # Stack expert predictions: (B, num_experts, 1, H, W)
-            experts = torch.cat(predictions, dim=1).cuda()
+            expert_predictions = torch.stack(predictions, dim=0).squeeze(2).permute(1, 0, 2, 3).cuda()
+            uncertainty_predictions = torch.stack(uncertainties, dim=0).squeeze(2).permute(1, 0, 2, 3).cuda()
 
-            logits = model(images) / tau  # (B, num_experts, H, W)
+            uncertainty_base_model = uncertainty_predictions[:, 0].unsqueeze(dim=1)
+            
+            images_with_uncertainty = torch.cat((images, uncertainty_base_model), dim=1)
+
+            logits = model(images_with_uncertainty) # (B, num_experts, H, W)
+
+            
+            logits = F.interpolate(logits, size=expert_predictions.shape[-2:], mode='bilinear', align_corners=False)
+
+            if inv_uq_sampling:
+                logits = logits / uncertainty_predictions
+            logits = logits / tau
+
             # Softmax over experts
             probs = F.softmax(logits, dim=1)  # (B, num_experts, H, W)
 
-            # Weighted sum of expert predictions
-            pred_depths = torch.sum(probs * experts, dim=1, keepdim=True)  # (B, 1, H, W)
+            # Model's argmax prediction (i.e., which expert it would choose)
+            predicted_indices = torch.argmax(probs, dim=1)  # (B, H, W)
 
-            loss = scale_invariant_rmse(pred_depths, depths)
-            total_rmse += loss.item()
+            errors = torch.abs(expert_predictions - depths.expand_as(expert_predictions))  # (B, num_experts, H, W)
+            best_expert_indices = torch.argmin(errors, dim=1)  # (B, H, W)
+
+
+            # Compute softmax-based depth only at uncertain pixels
+            final_prediction = torch.empty_like(depths)
+
+            
+            uncertainty_mask = (uncertainty_base_model > threshold).squeeze(1)  # (B, H, W)
+
+            # (1) Use expert 0 prediction where uncertainty is low
+            base_model_prediction = expert_predictions[:, 0]
+            final_prediction[:, 0][~uncertainty_mask] = base_model_prediction[~uncertainty_mask]
+            predicted_indices[~uncertainty_mask] = 0
+
+            # (2) Use soft combination where uncertainty is high
+            soft_pred = torch.sum(probs * expert_predictions, dim=1)  # (B, H, W)
+            final_prediction[:, 0][uncertainty_mask] = soft_pred[uncertainty_mask]
+
+            #!!!!!!!
+            #probs_without_model = F.softmax(1 / (uncertainty_predictions / 20.), dim=1)
+            #final_prediction = torch.sum(probs_without_model * expert_predictions, dim=1, keepdim=True)
+
+            #final_prediction = torch.mean(expert_predictions, dim=1, keepdim=True)
+
+            #B, H, W = best_expert_indices.shape
+            #num_classes = len(categories) + 1  # 6
+            # Preallocate the one-hot tensor on the same device
+            #one_hot = torch.zeros((B, num_classes, H, W), device=best_expert_indices.device)
+            # Use scatter to set 1s in the correct places
+            #one_hot.scatter_(1, best_expert_indices.unsqueeze(1), 1.0)
+            #final_prediction = torch.sum(one_hot * expert_predictions, dim=1, keepdim=True)
+
+            #final_prediction[:, 0] = base_model_prediction
+
+            #!!!!!
+
+            total_sirmse_loss += scale_invariant_rmse(final_prediction, depths).item()
+            total_mae_loss += mae_loss(final_prediction, depths).item()
+            total_rmse_loss +=  rmse_loss(final_prediction, depths).item()
+            total_rel_loss += rel_loss(final_prediction, depths).item()
+            total_delta1_accuracy += delta1_accuracy(final_prediction, depths).item()
+            total_delta2_accuracy += delta2_accuracy(final_prediction, depths).item()
+            total_delta3_accuracy += delta3_accuracy(final_prediction, depths).item()
 
 
             # Expand GT depth to match experts shape
-            depths_expanded = depths.expand_as(experts)  # (B, num_experts, H, W)
+            depths_expanded = depths.expand_as(expert_predictions)  # (B, num_experts, H, W)
 
             # Calculate absolute error between each expert prediction and ground truth
-            errors = torch.abs(experts - depths_expanded)  # (B, num_experts, H, W)
+            errors = torch.abs(expert_predictions - depths_expanded)  # (B, num_experts, H, W)
 
             # Find index of the expert with minimal error at each pixel
             best_expert_indices = torch.argmin(errors, dim=1)  # (B, H, W)
 
             if visualize and count == 0:
-                visualize_batch(images, pred_depths, depths, probs, best_expert_indices, uncertainties, categories)
+                visualize_batch(images, final_prediction, depths, probs, predicted_indices, best_expert_indices, expert_predictions, uncertainty_predictions, uncertainty_mask, image_paths, categories)
                 count += 1
 
-    avg_rmse = total_rmse / len(val_dataloader)
-    print(f"✅ Scale-Invariant RMSE after epoch {epoch}: {avg_rmse:.4f}")
+    print("")
+    print(f"✅ Scale-Invariant RMSE after epoch {epoch}: {(total_sirmse_loss / len(val_dataloader)):.4f}")
+    print(f"✅ MAE after epoch {epoch}: {(total_mae_loss / len(val_dataloader)):.4f}")
+    print(f"✅ RMSE after epoch {epoch}: {(total_rmse_loss / len(val_dataloader)):.4f}")
+    print(f"✅ REL after epoch {epoch}: {(total_rel_loss / len(val_dataloader)):.4f}")
+    print(f"✅ Delta 1 Acc after epoch {epoch}: {(total_delta1_accuracy / len(val_dataloader)):.4f}")
+    print(f"✅ Delta 2 Acc after epoch {epoch}: {(total_delta2_accuracy / len(val_dataloader)):.4f}")
+    print(f"✅ Delta 3 Acc after epoch {epoch}: {(total_delta3_accuracy / len(val_dataloader)):.4f}")
 
 
-def visualize_batch(images, pred_depths, depths, probs_batch, best_expert_indices_batch, uncertainties, categories, save_path="meta_maps"):
+def predict_metamodel(model, test_dataloader, threshold=0.03, tau=1., inv_uq_sampling=True, prediction_folder="src/data/predictions"):
+    model.eval()
+    with torch.no_grad():
+        for batch in test_dataloader:
+            images, depth_file_names, predictions, uncertainties, image_paths = batch
+            images = images.cuda().permute(0, 3, 1, 2)  # (B, C, H, W)
+
+            # Stack expert predictions: (B, num_experts, 1, H, W)
+            expert_predictions = torch.stack(predictions, dim=0).squeeze(2).permute(1, 0, 2, 3).cuda()
+            uncertainty_predictions = torch.stack(uncertainties, dim=0).squeeze(2).permute(1, 0, 2, 3).cuda()  
+            uncertainty_base_model = uncertainty_predictions[:, 0].unsqueeze(dim=1)
+
+            images_with_uncertainty = torch.cat((images, uncertainty_base_model), dim=1)
+            logits = model(images_with_uncertainty) # (B, num_experts, H, W)
+            logits = F.interpolate(logits, size=expert_predictions.shape[-2:], mode='bilinear', align_corners=False)
+            if inv_uq_sampling:
+                logits = logits / uncertainty_predictions
+            logits = logits / tau
+            # Softmax over experts
+            probs = F.softmax(logits, dim=1)  # (B, num_experts, H, W)
+
+            # Compute softmax-based depth only at uncertain pixels
+            shape = list(images.shape)
+            shape[1] = 1
+            final_prediction = torch.empty(shape, dtype=images.dtype, device=images.device)
+
+            uncertainty_mask = (uncertainty_base_model > threshold).squeeze(1)  # (B, H, W)
+
+            # (1) Use expert 0 prediction where uncertainty is low
+            base_model_prediction = expert_predictions[:, 0]
+            final_prediction[:, 0][~uncertainty_mask] = base_model_prediction[~uncertainty_mask]
+
+            # (2) Use soft combination where uncertainty is high
+            soft_pred = torch.sum(probs * expert_predictions, dim=1)  # (B, H, W)
+            final_prediction[:, 0][uncertainty_mask] = soft_pred[uncertainty_mask]
+
+            for pred, depth_file_name in zip(final_prediction, depth_file_names):
+                depth_file_path = os.path.join(prediction_folder, depth_file_name)
+                np.save(depth_file_path, pred.cpu())
+
+
+
+
+
+def visualize_batch(images, pred_depths, depths, probs_batch, predicted_indices_batch, best_expert_indices_batch, expert_predictions, uncertainties_predictions, masks, image_paths, categories, save_path="meta_maps"):
     """
     Visualize a batch of examples.
 
@@ -319,76 +331,132 @@ def visualize_batch(images, pred_depths, depths, probs_batch, best_expert_indice
         os.makedirs(save_path)
     
     image_count = 0
-    for image, pred_depth, depth, probs, best_expert_indices, uncertainty in zip(images, pred_depths, depths, probs_batch, best_expert_indices_batch, uncertainties):
+    for image, pred_depth, depth, probs, predicted_indices, best_expert_indices, mask, all_predictions, uncertainty_predictions, image_path in \
+        zip(images, pred_depths, depths, probs_batch, predicted_indices_batch, best_expert_indices_batch, masks, expert_predictions, uncertainties_predictions, image_paths):
         image = image.permute(1, 2, 0).cpu().numpy()  # (H, W, 3)
         image = np.clip(image, 0, 1)
 
         pred_depth = pred_depth[0].cpu().numpy()
         depth_gt = depth[0].cpu().numpy()
-        uncertainty = uncertainty[0].cpu().numpy()
+        prediction_base_model = all_predictions[0].cpu().numpy()
+        uncertainty_base_model = uncertainty_predictions[0].cpu().numpy()
+
+
+        prediction_error = np.abs(pred_depth - depth_gt)
 
         # Predicted expert map
-        expert_map = torch.argmax(probs, dim=0).cpu().numpy()  # (H, W)
-
-        probs_mean = torch.mean(probs, dim=0).cpu().numpy()
-        probs_var = torch.var(probs, dim=0).cpu().numpy()
+        predicted_expert_map = predicted_indices.cpu().numpy()  # (H, W)
+        mask = mask.cpu()
 
         # Best expert map (oracle)
+        predicted_expert_map[~mask] = 6
+        best_expert_indices[~mask] = 6
+        
+        # Best expert map (oracle)
         best_map = best_expert_indices.cpu().numpy()  # (H, W)
-
-        experts = ["base"] + categories 
+        experts = ["Base"] + [categorty.title() + " Expert" for categorty in categories]
 
         # Define a color map: one color per expert
         colors = np.array([
-            [255, 0, 0],      # Red
-            [0, 255, 0],      # Green
-            [0, 0, 255],      # Blue
+            [0, 255, 0],    # Green
+            [0, 128, 128],     # Teal
             [255, 255, 0],    # Yellow
             [255, 0, 255],    # Magenta
-            [0, 255, 255],    # Cyan
+            [245, 130, 48],   # Orange
+            [0, 255, 255],     # Cyan
+            [0, 0, 0],    # Black
         ]) / 255.0  # normalize to [0,1]
 
-        colors = colors[:num_models]
+        colors = colors[:(num_models + 1)]
         num_colors = len(colors)
 
-        expert_color_map = colors[expert_map]  # (H, W, 3)
+        expert_color_map = colors[predicted_expert_map]  # (H, W, 3)
         best_color_map = colors[best_map]      # (H, W, 3)
 
         # Plotting
-        fig, (ax1, ax2) = plt.subplots(2, 6, figsize=(25, 10))  # ➡️ Now 11 plots
+        fig, (ax1, ax2, ax3) = plt.subplots(3, 6, figsize=(25, 12))  # ➡️ Now 18 plots
+
+        image_id = image_path.split('_')[-2].split('.')[0]
+
+        # Load class name from val_class_to_indices.json
+        with open('val_class_to_indices.json', 'r') as f:
+            val_class_dict = json.load(f)
+        class_name = next((k for k, v in val_class_dict.items() if image_id in v), "Unknown")
+
+        # Load group name from grouped_classes.json
+        with open('class_groups.json', 'r') as f:
+            group_data = json.load(f)
+        group_name = next((group for group, classes in group_data.items() if class_name in classes), "Unknown")
+
+        fig.suptitle(f"Prediction Maps for {image_path}: ({group_name.title()} → {class_name.title()})", fontsize=24, fontweight='bold')
+
+        index = experts = ["Base"] + [categorty.title() + " Expert" for categorty in categories]
+
 
         ax1[0].imshow(image)
         ax1[0].set_title('Input Image')
 
-        ax1[1].imshow(pred_depth, cmap='plasma')
-        ax1[1].set_title('Predicted Depth')
+        ax1[1].imshow(prediction_base_model, cmap='plasma')
+        ax1[1].set_title('Base Model Predicted Depth')
 
-        ax1[2].imshow(depth_gt, cmap='plasma')
-        ax1[2].set_title('Ground Truth Depth')
+        ax1[2].imshow(pred_depth, cmap='plasma')
+        ax1[2].set_title('Metamodel Predicted Depth')
 
-        ax1[3].imshow(expert_color_map)
-        ax1[3].set_title('Chosen Expert Map')
+        ax1[3].imshow(depth_gt, cmap='plasma')
+        ax1[3].set_title('Ground Truth Depth')
 
-        ax1[4].imshow(best_color_map)
-        ax1[4].set_title('Best Expert (Oracle) Map')
+        ax1[4].imshow(expert_color_map)
+        ax1[4].set_title('Model With Highest Percentage')
 
-        ax1[5].imshow(uncertainty, cmap='viridis')
-        ax1[5].set_title('Uncertainty Map')
+        #ax1[5].imshow(best_color_map)
+        #ax1[5].set_title('Optimal Oracle Map')
+
+        #prediction_error_color_map_clamped = prediction_error.clip(0, np.percentile(prediction_error, 99.9))
+        #prediction_error_color_map = np.expand_dims(prediction_error_color_map_clamped / np.max(prediction_error_color_map_clamped), axis=0).transpose(1, 2, 0) * np.array([255, 0, 0]) / 255.0
+        ax1[5].imshow(prediction_error, cmap='plasma')
+        ax1[5].set_title('Metamodel L1 Prediction Error')
+        ax1[5].text(0.5, -0.1, f'Mean: {np.mean(prediction_error):.3f}, Std: {np.std(prediction_error):.3f}, Max: {np.max(prediction_error):.3f}', transform=ax1[5].transAxes,ha='center', va='top', fontsize=14)
 
         for i in range(6):
             ax1[i].axis('off')
 
         for i in range(num_models):
-            prob = probs[i].cpu().numpy()  # (H, W), values in [0, 1]
-            color = colors[i]              # (3,), RGB in [0, 1]
+            expanded_mask = mask.cpu().numpy()[np.newaxis, :, :]
+            masked_probs = probs[i].cpu().numpy() * expanded_mask # (H, W), values in [0, 1]
+            valid_values = masked_probs[expanded_mask]
+            #masked_probs /= np.max(masked_probs)
+            cyan_color = np.array([0, 255, 255]) / 255.0             # (3,), RGB in [0, 1] Cyan
             
             # Expand prob to (H, W, 1) to broadcast with (3,) color
-            rgb_image = prob[..., np.newaxis] * color  # (H, W, 3)
+            rgb_image = masked_probs.transpose(1, 2, 0) # * cyan_color  # (H, W, 3)
             
-            ax2[i].imshow(rgb_image)
-            ax2[i].set_title(f'Prob {experts[i]}')
-            ax2[i].text(0.5, -0.1, f'Max: {np.max(prob):.4f}, Min: {np.min(prob):.4f}, Mean: {np.mean(prob):.4f}, Std: {np.std(prob):.4f}', transform=ax2[i].transAxes,ha='center', va='top', fontsize=10)
+            ax2[i].imshow(rgb_image, cmap="inferno")
+            ax2[i].set_title(f'Prob. {experts[i]} Model')
+            ax2[i].text(0.5, -0.1, f'Mean: {np.mean(valid_values):.3f}, Std: {np.std(valid_values):.3f}', transform=ax2[i].transAxes,ha='center', va='top', fontsize=14)
             ax2[i].axis('off')
+
+            
+        for i in range(num_models):
+            ax3[i].imshow(uncertainty_predictions[i].cpu().numpy(), cmap='viridis')
+            ax3[i].set_title(f'Unc. {experts[i]} Model ')
+            ax3[i].axis('off')
+
+
+        # Create legend handles
+        legend_elements = [
+            Patch(facecolor=colors[i], label=experts[i])
+            for i in range(len(experts))
+        ]
+
+        # Add legend to the figure
+        #fig.legend(handles=legend_elements,loc='upper center', bbox_to_anchor=(0.67, 0.65), ncol=len(experts), fontsize=14, frameon=False)
+
+        fig.legend(handles=legend_elements,
+           loc='lower center',
+           bbox_to_anchor=(0.5, 0.0),
+           ncol=len(experts),
+           fontsize=15,
+           frameon=False)
 
         plt.tight_layout()
         
@@ -402,56 +470,81 @@ def visualize_batch(images, pred_depths, depths, probs_batch, best_expert_indice
         plt.close()
 
 
-def main(args):
+def main(config):
 
     root = "src/data"
-    cluster_root = "src/data" # "/cluster/courses/cil/monocular_depth/data/"
+    cluster_root = config.cluster_root
+    predictions_root = config.predictions_temp_root
+
+    #cluster_root = "src/data"
+    #predictions_root = "src/data/predictions_temp"
 
     train_image_folder = os.path.join(cluster_root, "train")
     train_depth_folder = os.path.join(cluster_root, "train")
+    val_image_folder = os.path.join(cluster_root, "train")
+    val_depth_folder = os.path.join(cluster_root, "train")
     test_image_folder = os.path.join(cluster_root, "test")
 
     categories = ["kitchen", "bathroom", "dorm_room", "living_room", "home_office"]
+    categories = ["sleeping", "work", "kitchen", "living", "remaining"]
     num_experts = len(categories) + 1
-    base_predictions_path = os.path.join(root, "predictions_temp/base_model")
-    expert_predictions_path = os.path.join(root, "predictions_temp/expert_models")
+    base_predictions_path = os.path.join(predictions_root, "base_model")
+    expert_predictions_path = os.path.join(predictions_root, "expert_models")
 
-    train_image_depth_pairs = load_image_depth_pairs(os.path.join(root, args.train_list))
-    val_image_depth_pairs = load_image_depth_pairs(os.path.join(root, args.val_list))
-    #test_image_depth_pairs = load_image_depth_pairs(os.path.join(root, args.test_list))
+    train_image_depth_pairs = load_image_depth_pairs(os.path.join(root, config.train_list))
+    val_image_depth_pairs = load_image_depth_pairs(os.path.join(root, config.val_list))
+    test_image_depth_pairs = load_image_depth_pairs(os.path.join(root, "test_list.txt"))
 
     # Dataset and Dataloader
     train_dataset = ExpertTrainDataset(train_image_folder, train_depth_folder, train_image_depth_pairs, base_predictions_path, expert_predictions_path, categories)
-    val_dataset = ExpertTrainDataset(train_image_folder, train_depth_folder, val_image_depth_pairs, base_predictions_path, expert_predictions_path, categories)
-    test_dataset = ExpertTestDataset(train_image_folder, train_image_depth_pairs, base_predictions_path, expert_predictions_path, categories)
+    val_dataset = ExpertTrainDataset(val_image_folder, val_depth_folder, val_image_depth_pairs, base_predictions_path, expert_predictions_path, categories)
+    test_dataset = ExpertTestDataset(test_image_folder, test_image_depth_pairs, base_predictions_path, expert_predictions_path, categories)
 
-    train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
-    val_dataloader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=True)
+    train_dataloader = DataLoader(train_dataset, batch_size=config.batch_size, shuffle=True)
+    val_dataloader = DataLoader(val_dataset, batch_size=config.batch_size, shuffle=True)
+    test_dataloader = DataLoader(test_dataset, batch_size=config.batch_size, shuffle=True)
     
-    model = SimpleUNet(num_experts=num_experts)
+    model = AttentionUNet(in_channels=4, num_experts=num_experts)
+    uncertainty_threshold = config.uncertainty_threshold
+    tau=config.tau
 
+
+    run_id = datetime.now().strftime("%y%m%d_%H%M%S")
+    print('---------------- Run id:', run_id, '----------------')
     print("✅ Train Metamodel")
-    train_metamodel(model, train_dataloader, val_dataloader, categories, num_epochs=args.num_epochs)
+    #train_metamodel(model, train_dataloader, val_dataloader, categories, out_path=f"models/metamodel_{run_id}_finetuned.pth", num_epochs=config.num_epochs, threshold=uncertainty_threshold, tau=tau, alpha=config.alpha, beta=config.beta, gamma=config.gamma)
     print("Evaluate MetaModel")
-    model_path = "models/metamodel_final.pth"
-    #model.load_state_dict(torch.load(model_path))
+    model_path = config.pretrained
+    model.load_state_dict(torch.load(model_path))
     model = model.cuda()  # move to GPU after loading 
     model.eval()
-    evaluate_metamodel(model, val_dataloader, 5, categories, visualize=True)
+    evaluate_metamodel(model, val_dataloader, config.num_epochs, categories, threshold=uncertainty_threshold, tau=tau)
+    print("Predict MetaModel")
+    #predict_metamodel(model, test_dataloader, threshold=uncertainty_threshold, tau=tau)
     print("Finished")
-
 
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train metamodel to predict a pixel-wise linear combination of pixel from base and expert models")
-    parser.add_argument("--train-list", type=str, required=True, help="Path to train list") # category_lists/bathroom_train_list.txt
-    parser.add_argument("--val-list", type=str, required=True, help="Path to val list") # category_lists/bathroom_val_list.txt
-    parser.add_argument("--batch-size", type=int, default=8)
-    parser.add_argument("--num-epochs", type=int, default=5)
-    args = parser.parse_args()
+    parser.add_argument("-p","--pretrained", type=str, default="models/metamodel_finetuned", help="Path to pretrained model")
+    parser.add_argument("-tl", "--train-list", type=str, required=True, help="Path to train list")
+    parser.add_argument("-vl","--val-list", type=str, required=True, help="Path to val list")
+    parser.add_argument("-b", "--batch-size", type=int, default=8)
+    parser.add_argument("-e", "--num-epochs", type=int, default=10)
+    parser.add_argument("-u", "--uncertainty-threshold", type=float, default=0.00, help="Only evaluate loss at uncertain regions (uncertainty > threshold), otherwise base model")
+    parser.add_argument("--alpha", type=float, default=1., help="mse loss of masked region")
+    parser.add_argument("--beta", type=float, default=0.01, help="cross entropy loss of masked region (with best expert per pixel)") #0.01
+    parser.add_argument("--gamma", type=float, default=0, help="entropy regularization (punishes flat distributions in terms of post-softmax values)")
+    parser.add_argument("--tau", type=float, default=1., help="temperature of model outputs before softmax (logits)") #5.
+    parser.add_argument("--cluster-root", type=str, default="/cluster/courses/cil/monocular_depth/data/")
+    parser.add_argument("--predictions-temp-root", type=str, default="/work/scratch/<user>/predictions_temp")
+    config = parser.parse_args()
 
     run_id = datetime.now().strftime("%y%m%d_%H%M%S")
     print('---------------- Run id:', run_id, '----------------')
 
-    main(args)
+    main(config)
+
+#7
+#8

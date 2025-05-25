@@ -50,7 +50,7 @@ class ExpertTrainDataset(Dataset):
             uncertainty_expert = ((uncertainty_expert - uncertainty_expert.min()) / (uncertainty_expert.max() - uncertainty_expert.min())).clip(min=1e-8)
             uncertainties.append(uncertainty_expert)
 
-        return image, depth, predictions, uncertainties
+        return image, depth, predictions, uncertainties, image_path.split("/")[-1]
     
 
 class ExpertTestDataset(Dataset):
@@ -93,4 +93,4 @@ class ExpertTestDataset(Dataset):
             uncertainty_expert = ((uncertainty_expert - uncertainty_expert.min()) / (uncertainty_expert.max() - uncertainty_expert.min())).clip(min=1e-8)
             uncertainties.append(uncertainty_expert)
 
-        return image, depth_file_name, predictions, uncertainties
+        return image, depth_file_name, predictions, uncertainties, image_path.split("/")[-1]
