@@ -216,24 +216,6 @@ def evaluate_metamodel(model, val_dataloader, epoch, categories, threshold=0.03,
             soft_pred = torch.sum(probs * expert_predictions, dim=1)  # (B, H, W)
             final_prediction[:, 0][uncertainty_mask] = soft_pred[uncertainty_mask]
 
-            #!!!!!!!
-            #probs_without_model = F.softmax(1 / (uncertainty_predictions / 20.), dim=1)
-            #final_prediction = torch.sum(probs_without_model * expert_predictions, dim=1, keepdim=True)
-
-            #final_prediction = torch.mean(expert_predictions, dim=1, keepdim=True)
-
-            #B, H, W = best_expert_indices.shape
-            #num_classes = len(categories) + 1  # 6
-            # Preallocate the one-hot tensor on the same device
-            #one_hot = torch.zeros((B, num_classes, H, W), device=best_expert_indices.device)
-            # Use scatter to set 1s in the correct places
-            #one_hot.scatter_(1, best_expert_indices.unsqueeze(1), 1.0)
-            #final_prediction = torch.sum(one_hot * expert_predictions, dim=1, keepdim=True)
-
-            #final_prediction[:, 0] = base_model_prediction
-
-            #!!!!!
-
             total_sirmse_loss += scale_invariant_rmse(final_prediction, depths).item()
             total_mae_loss += mae_loss(final_prediction, depths).item()
             total_rmse_loss +=  rmse_loss(final_prediction, depths).item()
@@ -410,9 +392,7 @@ def visualize_batch(images, pred_depths, depths, probs_batch, predicted_indices_
 
         #ax1[5].imshow(best_color_map)
         #ax1[5].set_title('Optimal Oracle Map')
-
-        #prediction_error_color_map_clamped = prediction_error.clip(0, np.percentile(prediction_error, 99.9))
-        #prediction_error_color_map = np.expand_dims(prediction_error_color_map_clamped / np.max(prediction_error_color_map_clamped), axis=0).transpose(1, 2, 0) * np.array([255, 0, 0]) / 255.0
+        
         ax1[5].imshow(prediction_error, cmap='plasma')
         ax1[5].set_title('Metamodel L1 Prediction Error')
         ax1[5].text(0.5, -0.1, f'Mean: {np.mean(prediction_error):.3f}, Std: {np.std(prediction_error):.3f}, Max: {np.max(prediction_error):.3f}', transform=ax1[5].transAxes,ha='center', va='top', fontsize=14)
@@ -424,8 +404,6 @@ def visualize_batch(images, pred_depths, depths, probs_batch, predicted_indices_
             expanded_mask = mask.cpu().numpy()[np.newaxis, :, :]
             masked_probs = probs[i].cpu().numpy() * expanded_mask # (H, W), values in [0, 1]
             valid_values = masked_probs[expanded_mask]
-            #masked_probs /= np.max(masked_probs)
-            cyan_color = np.array([0, 255, 255]) / 255.0             # (3,), RGB in [0, 1] Cyan
             
             # Expand prob to (H, W, 1) to broadcast with (3,) color
             rgb_image = masked_probs.transpose(1, 2, 0) # * cyan_color  # (H, W, 3)
@@ -447,9 +425,6 @@ def visualize_batch(images, pred_depths, depths, probs_batch, predicted_indices_
             Patch(facecolor=colors[i], label=experts[i])
             for i in range(len(experts))
         ]
-
-        # Add legend to the figure
-        #fig.legend(handles=legend_elements,loc='upper center', bbox_to_anchor=(0.67, 0.65), ncol=len(experts), fontsize=14, frameon=False)
 
         fig.legend(handles=legend_elements,
            loc='lower center',
@@ -476,8 +451,8 @@ def main(config):
     cluster_root = config.cluster_root
     predictions_root = config.predictions_temp_root
 
-    #cluster_root = "src/data"
-    #predictions_root = "src/data/predictions_temp"
+    cluster_root = "src/data"
+    predictions_root = "src/data/predictions_temp"
 
     train_image_folder = os.path.join(cluster_root, "train")
     train_depth_folder = os.path.join(cluster_root, "train")
@@ -485,7 +460,6 @@ def main(config):
     val_depth_folder = os.path.join(cluster_root, "train")
     test_image_folder = os.path.join(cluster_root, "test")
 
-    categories = ["kitchen", "bathroom", "dorm_room", "living_room", "home_office"]
     categories = ["sleeping", "work", "kitchen", "living", "remaining"]
     num_experts = len(categories) + 1
     base_predictions_path = os.path.join(predictions_root, "base_model")
@@ -512,16 +486,16 @@ def main(config):
     run_id = datetime.now().strftime("%y%m%d_%H%M%S")
     print('---------------- Run id:', run_id, '----------------')
     print("✅ Train Metamodel")
-    #train_metamodel(model, train_dataloader, val_dataloader, categories, out_path=f"models/metamodel_{run_id}_finetuned.pth", num_epochs=config.num_epochs, threshold=uncertainty_threshold, tau=tau, alpha=config.alpha, beta=config.beta, gamma=config.gamma)
-    print("Evaluate MetaModel")
-    model_path = config.pretrained
-    model.load_state_dict(torch.load(model_path))
-    model = model.cuda()  # move to GPU after loading 
-    model.eval()
-    evaluate_metamodel(model, val_dataloader, config.num_epochs, categories, threshold=uncertainty_threshold, tau=tau)
-    print("Predict MetaModel")
+    train_metamodel(model, train_dataloader, val_dataloader, categories, out_path=f"models/metamodel_{run_id}_finetuned.pth", num_epochs=config.num_epochs, threshold=uncertainty_threshold, tau=tau, alpha=config.alpha, beta=config.beta, gamma=config.gamma)
+    #print("Evaluate MetaModel")
+    #model_path = config.pretrained if config.pretrained
+    #model.load_state_dict(torch.load(model_path))
+    #model = model.cuda()  # move to GPU after loading 
+    #model.eval()
+    #evaluate_metamodel(model, val_dataloader, config.num_epochs, categories, threshold=uncertainty_threshold, tau=tau)
+    #print("Predict MetaModel")
     #predict_metamodel(model, test_dataloader, threshold=uncertainty_threshold, tau=tau)
-    print("Finished")
+    #print("Finished")
 
 
 
@@ -535,7 +509,7 @@ if __name__ == "__main__":
     parser.add_argument("-u", "--uncertainty-threshold", type=float, default=0.00, help="Only evaluate loss at uncertain regions (uncertainty > threshold), otherwise base model")
     parser.add_argument("--alpha", type=float, default=1., help="mse loss of masked region")
     parser.add_argument("--beta", type=float, default=0.01, help="cross entropy loss of masked region (with best expert per pixel)") #0.01
-    parser.add_argument("--gamma", type=float, default=0, help="entropy regularization (punishes flat distributions in terms of post-softmax values)")
+    parser.add_argument("--gamma", type=float, default=0.0001, help="entropy regularization (punishes flat distributions in terms of post-softmax values)")
     parser.add_argument("--tau", type=float, default=1., help="temperature of model outputs before softmax (logits)") #5.
     parser.add_argument("--cluster-root", type=str, default="/cluster/courses/cil/monocular_depth/data/")
     parser.add_argument("--predictions-temp-root", type=str, default="/work/scratch/<user>/predictions_temp")
@@ -548,3 +522,18 @@ if __name__ == "__main__":
 
 #7
 #8
+
+#Validation siRMSE:
+
+# 0.0661
+# 0.0635
+# 0.0621
+# 0.0611
+# 0.0607
+# 0.0605
+# 0.0613
+# 0.0607
+# 0.0603
+# 0.0602
+# 0.0601
+#Work, Kitchen, Living, Sleeping, Remaining
