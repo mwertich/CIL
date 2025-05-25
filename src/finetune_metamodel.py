@@ -392,7 +392,7 @@ def visualize_batch(images, pred_depths, depths, probs_batch, predicted_indices_
 
         #ax1[5].imshow(best_color_map)
         #ax1[5].set_title('Optimal Oracle Map')
-        
+
         ax1[5].imshow(prediction_error, cmap='plasma')
         ax1[5].set_title('Metamodel L1 Prediction Error')
         ax1[5].text(0.5, -0.1, f'Mean: {np.mean(prediction_error):.3f}, Std: {np.std(prediction_error):.3f}, Max: {np.max(prediction_error):.3f}', transform=ax1[5].transAxes,ha='center', va='top', fontsize=14)
@@ -451,8 +451,8 @@ def main(config):
     cluster_root = config.cluster_root
     predictions_root = config.predictions_temp_root
 
-    cluster_root = "src/data"
-    predictions_root = "src/data/predictions_temp"
+    #cluster_root = "src/data"
+    #predictions_root = "src/data/predictions_temp"
 
     train_image_folder = os.path.join(cluster_root, "train")
     train_depth_folder = os.path.join(cluster_root, "train")
@@ -486,13 +486,13 @@ def main(config):
     run_id = datetime.now().strftime("%y%m%d_%H%M%S")
     print('---------------- Run id:', run_id, '----------------')
     print("✅ Train Metamodel")
-    train_metamodel(model, train_dataloader, val_dataloader, categories, out_path=f"models/metamodel_{run_id}_finetuned.pth", num_epochs=config.num_epochs, threshold=uncertainty_threshold, tau=tau, alpha=config.alpha, beta=config.beta, gamma=config.gamma)
+    #train_metamodel(model, train_dataloader, val_dataloader, categories, out_path=f"models/metamodel_{run_id}_finetuned.pth", num_epochs=config.num_epochs, threshold=uncertainty_threshold, tau=tau, alpha=config.alpha, beta=config.beta, gamma=config.gamma)
     #print("Evaluate MetaModel")
-    #model_path = config.pretrained if config.pretrained
+    #model_path = config.pretrained
     #model.load_state_dict(torch.load(model_path))
     #model = model.cuda()  # move to GPU after loading 
     #model.eval()
-    #evaluate_metamodel(model, val_dataloader, config.num_epochs, categories, threshold=uncertainty_threshold, tau=tau)
+    evaluate_metamodel(model, val_dataloader, config.num_epochs, categories, threshold=uncertainty_threshold, tau=tau)
     #print("Predict MetaModel")
     #predict_metamodel(model, test_dataloader, threshold=uncertainty_threshold, tau=tau)
     #print("Finished")
@@ -519,21 +519,3 @@ if __name__ == "__main__":
     print('---------------- Run id:', run_id, '----------------')
 
     main(config)
-
-#7
-#8
-
-#Validation siRMSE:
-
-# 0.0661
-# 0.0635
-# 0.0621
-# 0.0611
-# 0.0607
-# 0.0605
-# 0.0613
-# 0.0607
-# 0.0603
-# 0.0602
-# 0.0601
-#Work, Kitchen, Living, Sleeping, Remaining
