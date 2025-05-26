@@ -486,22 +486,24 @@ def main(config):
     run_id = datetime.now().strftime("%y%m%d_%H%M%S")
     print('---------------- Run id:', run_id, '----------------')
     print("✅ Train Metamodel")
-    #train_metamodel(model, train_dataloader, val_dataloader, categories, out_path=f"models/metamodel_{run_id}_finetuned.pth", num_epochs=config.num_epochs, threshold=uncertainty_threshold, tau=tau, alpha=config.alpha, beta=config.beta, gamma=config.gamma)
-    #print("Evaluate MetaModel")
-    #model_path = config.pretrained
-    #model.load_state_dict(torch.load(model_path))
-    #model = model.cuda()  # move to GPU after loading 
-    #model.eval()
-    evaluate_metamodel(model, val_dataloader, config.num_epochs, categories, threshold=uncertainty_threshold, tau=tau)
-    #print("Predict MetaModel")
-    #predict_metamodel(model, test_dataloader, threshold=uncertainty_threshold, tau=tau)
-    #print("Finished")
+    if config.pretrained is None:
+        train_metamodel(model, train_dataloader, val_dataloader, categories, out_path=f"models/metamodel_{run_id}_finetuned.pth", num_epochs=config.num_epochs, threshold=uncertainty_threshold, tau=tau, alpha=config.alpha, beta=config.beta, gamma=config.gamma)
+    else:
+        print("Evaluate MetaModel")
+        model_path = config.pretrained
+        model.load_state_dict(torch.load(model_path))
+        model = model.cuda()  # move to GPU after loading 
+        model.eval()
+        evaluate_metamodel(model, val_dataloader, config.num_epochs, categories, threshold=uncertainty_threshold, tau=tau)
+        print("Predict MetaModel")
+        predict_metamodel(model, test_dataloader, threshold=uncertainty_threshold, tau=tau)
+        print("Finished")
 
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train metamodel to predict a pixel-wise linear combination of pixel from base and expert models")
-    parser.add_argument("-p","--pretrained", type=str, default="models/metamodel_finetuned", help="Path to pretrained model")
+    parser.add_argument("-p","--pretrained", type=str, help="Path to pretrained model")
     parser.add_argument("-tl", "--train-list", type=str, required=True, help="Path to train list")
     parser.add_argument("-vl","--val-list", type=str, required=True, help="Path to val list")
     parser.add_argument("-b", "--batch-size", type=int, default=8)

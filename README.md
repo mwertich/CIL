@@ -18,9 +18,9 @@ The base model is stored as "models/model_{run_id}_finetuned.pth". Rename it to 
 
 Call src/categorize_images.py to obtain the categorized list of images belonging to the respective category.
 
-There exist five categories from which we have obtained images:  ["sleeping", "work", "kitchen", "living", "remaining"]
+There exist five categories from which we have obtained images:  C = ["sleeping", "work", "kitchen", "living", "remaining"]
 
-To train an expert model with uncertainty: 
+To train an expert model with uncertainty for a particular category (replace {category} with one element of C): 
 
     python src/finetune_model_with_uncertainty.py -trainl category_lists/{category}_train_list.txt -vall category_lists/{category}_val_list.txt -f
 
@@ -49,7 +49,7 @@ To obtain all predictions for the small training/validation list for all test da
 
 (You can also call the entire training and validation lists: --train-list train_list.txt --val-list val_list.txt (requiring almost 200 GB RAM to store all intermediate predictions), so we recommend using the smaller lists instead)
 
-Furthermore, you need to specify your ethz username on the cluster so that the data gets stored at scratch on the cluster or point to a local path where predictions_temp can be stored:
+Furthermore, you need to specify your ethz username on the cluster so that the intermediate prediction of the base and expert models get stored at scratch on the cluster or point to a local path at --predictions-temp-root where predictions_temp can be stored:
 
 
 ### 4. Learn Metamodel by loading all predictions/uncertainties and utilizing Mixture of Experts Ensembling, and Inverse Uncertainty Averaging
@@ -58,7 +58,11 @@ Then call the final metamodel training with:
 
     python src/finetune_metamodel.py --train-list train_list_small.txt --val-list val_list_small.txt --predictions-temp-root /work/scratch/<user>/predictions_temp --cluster-root /cluster/courses/cil/monocular_depth/data
 
-The model is stored under models/final_metamodel.pth and can be loaded from there
+The --predictions-temp-root needs to match to the previous step. The final metamodel is stored under models/model_{run_id}_finetuned.pth and can be loaded from there. You can rename it to models/metamodel_finetuned.pth
+
+In order to evaluate on the validation data and predict on the test data with the metamodel, just call:
+
+    python src/finetune_metamodel.py --train-list train_list_small.txt --val-list val_list_small.txt --predictions-temp-root /work/scratch/<user>/predictions_temp --cluster-root /cluster/courses/cil/monocular_depth/data -p <path_to_metamodel> 
 
 
 ## Evaluate the existing model
