@@ -1,6 +1,0 @@
-srun --mem-per-cpu=10000 -t 60 -A cil --pty bash
-conda activate /cluster/courses/cil/envs/monocular_depth/
-General:
-sbatch --time=2:00:00 --mem-per-cpu=10000 -A cil --output="training_log" --wrap="python src/finetune_model.py"
-Category:
-sbatch --time=1:30:00 --mem-per-cpu=10000 -A cil --output="training_log" --wrap="python src/finetune_model.py --category kitchen"
