@@ -20,6 +20,7 @@ models/
 share/
 bin/
 scripts/
+meta_maps/
 depth_maps/
 etc/
 include
