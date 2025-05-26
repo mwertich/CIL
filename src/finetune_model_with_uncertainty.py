@@ -12,7 +12,6 @@ from utils.visualization import visualize_prediction_with_ground_truth, visualiz
 from utils.loss_funcs import DepthUncertaintyLoss, scale_invariant_rmse, SobelEdgeLoss
 from utils.utils import torch_seed
 from model import MiDaSUQ
-# from evaluate import evaluate_model
 from evaluate_notebook import evaluate_model_notebook
 from predict import predict_model
 import numpy as np
@@ -40,8 +39,7 @@ def finetune_model(model, train_loader, val_loader, out_path, epochs=5, lr=1e-5,
     gradloss_func = SobelEdgeLoss().to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 
-    #evaluate initial model
-    # evaluate_model(model, val_loader, 0, device)
+    # evaluate initial model
     evaluate_model_notebook(model, val_loader, device, uq=True)
 
     # Training loop
@@ -80,7 +78,6 @@ def finetune_model(model, train_loader, val_loader, out_path, epochs=5, lr=1e-5,
             batch_losses.append(loss.item())
 
         print(f"✅ Epoch [{epoch}/{epochs}] finished. Loss: {running_loss/len(train_loader):.4f}")
-        # evaluate_model(model, val_loader, epoch, device)
         evaluate_model_notebook(model, val_loader, device, uq=True, epoch=epoch)
 
         # Save batch losses after each epoch

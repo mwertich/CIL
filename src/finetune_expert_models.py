@@ -22,32 +22,6 @@ image_size = [426, 560]
 torch.manual_seed(0)
 
 
-def evaluate_model(model, val_loader, epoch=0):
-    model.eval()
-    total_sirmse = 0.0
-    with torch.no_grad():
-        for images, depths in tqdm(val_loader, desc="Evaluating"):
-            images = images.to(device)
-            depths = depths.to(device)
-
-            preds = model(images)
-            if config.uq:
-                preds = preds[0]
-            preds_resized = torch.nn.functional.interpolate(
-                preds.unsqueeze(1), size=depths.shape[-2:], mode="bilinear", align_corners=False
-            )
-
-            eps = 1e-8
-            preds_resized = preds_resized.clamp(min=eps) # for numerical stability for RMSE to avoid nan values due to log(0)
-
-            loss = scale_invariant_rmse(preds_resized, depths)
-            total_sirmse += loss.item()
-
-    sirmse = total_sirmse / len(val_loader)
-    print(f"✅ Scale-Invariant RMSE after epoch {epoch}: {sirmse:.4f}")
-
-
-
 # Main training function
 def finetune_model(model, train_loader, val_loader, out_path, epochs=5, lr=1e-5, save_model = True):
 
