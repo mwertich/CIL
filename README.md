@@ -49,7 +49,15 @@ To obtain all predictions for the small training/validation list for all test da
 
 (You can also call the entire training and validation lists: --train-list train_list.txt --val-list val_list.txt (requiring almost 200 GB RAM to store all intermediate predictions), so we recommend using the smaller lists instead)
 
-Furthermore, you need to specify your ethz username on the cluster so that the intermediate prediction of the base and expert models get stored at scratch on the cluster or point to a local path at --predictions-temp-root where predictions_temp can be stored:
+Furthermore, you need to specify your ethz username on the cluster so that the intermediate prediction of the base and expert models get stored at scratch on the cluster or point to a local path at --predictions-temp-root where predictions_temp can be stored.
+
+## (Optional 3.5 Evaluate the existing base or expert models)
+
+In order to evaluate an existing MiDaS UQ model you should run the evaluate_notebook.py script. The exact command is:
+
+    python src/evaluate_model.py -p <path_to_evaluated_model> 
+
+This script will print the uncertainty sestimation quality metrics as well as depth estimation quality metrics.
 
 
 ### 4. Learn Metamodel by loading all predictions/uncertainties and utilizing Mixture of Experts Ensembling, and Inverse Uncertainty Averaging
@@ -65,18 +73,10 @@ In order to evaluate on the validation data and predict on the test data with th
     python src/finetune_metamodel.py --train-list train_list_small.txt --val-list val_list_small.txt --predictions-temp-root /work/scratch/<user>/predictions_temp --cluster-root /cluster/courses/cil/monocular_depth/data -p <path_to_metamodel> 
 
 
-# Create final Prediction csv
+# 5. Create the final prediction csv
 
 To obtain the prediction.csv, just call:
 
     python src/create_prediction_csv.py
 
 The final predictions are stored in src/data/predictions.csv
-
-## Evaluate the existing model
-
-In order to evaluate an existing model you should run the evaluate_notebook.py script. The exact command is:
-
-    python src/evaluate_model.py -p <path_to_evaluated_model> 
-
-This script will print the uncertainty sestimation quality metrics as well as depth estimation quality metrics.
