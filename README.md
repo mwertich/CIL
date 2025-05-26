@@ -7,13 +7,14 @@ The pipeline consists of four steps, all performed on the cluster in the environ
 3. Predict depth maps and uncertainty maps for train/val/test images and store them in predictions_temp
 4. Learn Metamodel by loading all predictions/uncertainties and utilizing Mixture of Experts Ensembling, and Inverse Uncertainty Averaging
 
+## Running the pipeline:
 
-## 1. Fine-tune a base MiDaS model with uncertainty
+### 1. Fine-tune a base MiDaS model with uncertainty
     python src/finetune_model_with_uncertainty.py
 
 The base model is stored as "models/model_{run_id}_finetuned.pth". Rename it to "base_model_with_uncertainty_finetuned.pth"
 
-## 2. Fine-tune expert MiDas models with uncertainty:
+### 2. Fine-tune expert MiDas models with uncertainty:
 
 Call src/categorize_images.py to obtain the categorized list of images belonging to the respective category.
 
@@ -25,7 +26,7 @@ To train an expert model with uncertainty:
 
 The expert model is stored as "models/model_{run_id}_finetuned.pth". Rename it to "model_{cateogry}_finetuned.pth"
 
-## 3. Predict depth maps and uncertainty maps for train/val/test images and store them in predictions_temp
+### 3. Predict depth maps and uncertainty maps for train/val/test images and store them in predictions_temp
 
 Load and rename the models and store them in models/*
 
@@ -51,10 +52,19 @@ To obtain all predictions for the small training/validation list for all test da
 Furthermore, you need to specify your ethz username on the cluster so that the data gets stored at scratch on the cluster or point to a local path where predictions_temp can be stored:
 
 
-## 4. Learn Metamodel by loading all predictions/uncertainties and utilizing Mixture of Experts Ensembling, and Inverse Uncertainty Averaging
+### 4. Learn Metamodel by loading all predictions/uncertainties and utilizing Mixture of Experts Ensembling, and Inverse Uncertainty Averaging
 
 Then call the final metamodel training with:
 
     python src/finetune_metamodel.py --train-list train_list_small.txt --val-list val_list_small.txt --predictions-temp-root /work/scratch/<user>/predictions_temp --cluster-root /cluster/courses/cil/monocular_depth/data
 
 The model is stored under models/final_metamodel.pth and can be loaded from there
+
+
+## Evaluate the existing model
+
+In order to evaluate an existing model you should run the evaluate_notebook.py script. The exact command is:
+
+    python src/evaluate_model.py -p <path_to_evaluated_model> 
+
+This script will print the uncertainty sestimation quality metrics as well as depth estimation quality metrics.
