@@ -65,6 +65,14 @@ In order to evaluate on the validation data and predict on the test data with th
     python src/finetune_metamodel.py --train-list train_list_small.txt --val-list val_list_small.txt --predictions-temp-root /work/scratch/<user>/predictions_temp --cluster-root /cluster/courses/cil/monocular_depth/data -p <path_to_metamodel> 
 
 
+# Create final Prediction csv
+
+To obtain the prediction.csv, just call:
+
+    python src/create_prediction_csv.py
+
+The final predictions are stored in src/data/predictions.csv
+
 ## Evaluate the existing model
 
 In order to evaluate an existing model you should run the evaluate_notebook.py script. The exact command is:
