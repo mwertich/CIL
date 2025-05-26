@@ -1,5 +1,4 @@
-# CIL
-ETHZ CIL 2025: Uncertainty-Aware Ensemble for Monocular Depth Estimation
+# Uncertainty-Aware Ensemble for Monocular Depth Estimation
 
 
 The pipeline consists of four steps, all performed on the cluster in the environment /cluster/courses/cil/monocular_depth:
