@@ -25,6 +25,7 @@ depth_maps/
 etc/
 include
 share/
+.vscode/
 bin/
 *.cfg
 *.csv
