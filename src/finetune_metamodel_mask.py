@@ -439,7 +439,8 @@ def main(config):
     val_depth_folder = os.path.join(cluster_root, "train")
     test_image_folder = os.path.join(cluster_root, "test")
 
-    categories = ["kitchen", "bathroom", "dorm_room", "living_room", "home_office"]
+    # categories = ["kitchen", "bathroom", "dorm_room", "living_room", "home_office"]
+    # categories = ["smoothed"]
     categories = ["sleeping", "work", "kitchen", "living", "remaining"]
     num_experts = len(categories) + 1
     base_predictions_path = os.path.join(predictions_root, "base_model")
