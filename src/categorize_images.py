@@ -79,6 +79,8 @@ with open(label_file) as f:
         "art_gallery", "artists_loft", "bank_vault", "bowling_alley", "gymnasium/indoor"
         ],
     }
+    with open('class_groups.json', 'w') as f:
+        json.dump(groups, f, indent=4)
 
 
 def get_all_expert_lists(list_file, cache_file, output_dir, list_suffix):
