@@ -26,7 +26,7 @@ To train an expert model with uncertainty for a particular category (replace {ca
 
 The expert model is stored as "models/model_{run_id}_finetuned.pth". Rename it to "model_{cateogry}_finetuned.pth"
 
-## (Optional 2.5. Evaluate the existing base or expert MiDaS UQ models)
+### (Optional 2.5. Evaluate the existing base or expert MiDaS UQ models)
 
 In order to evaluate an existing MiDaS UQ model you should run the evaluate_notebook.py script. The exact command is:
 
@@ -73,7 +73,7 @@ In order to evaluate on the validation data and predict on the test data with th
     python src/finetune_metamodel.py --train-list train_list_small.txt --val-list val_list_small.txt --predictions-temp-root /work/scratch/<user>/predictions_temp --cluster-root /cluster/courses/cil/monocular_depth/data -p <path_to_metamodel> 
 
 
-# 5. Create the final prediction csv
+### 5. Create the final prediction csv
 
 To obtain the prediction.csv, just call:
 
