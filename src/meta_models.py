@@ -93,6 +93,7 @@ class AttentionBlock(nn.Module):
         psi = self.psi(psi)
         return x * psi
 
+
 # ===== Simple Attention UNet =====
 class AttentionUNet(nn.Module):
     def __init__(self, num_experts, in_channels=3):
